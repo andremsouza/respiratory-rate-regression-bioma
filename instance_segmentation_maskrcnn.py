@@ -42,21 +42,26 @@ def show(imgs):
 
 # %%
 
-dog1_int = read_image(str(Path("images") / "dog1.jpg"))
-dog2_int = read_image(str(Path("images") / "dog2.jpg"))
-dog_list = [dog1_int, dog2_int]
+video, audio, info = read_video("videos/video1_01.mp4")
+# Take a frame from the video
+frame = video[0]
+# dog1_int = read_image(str(Path("images") / "dog1.jpg"))
+# dog2_int = read_image(str(Path("images") / "dog2.jpg"))
+# cow1_int = frame.permute(2, 0, 1)
+cow2_int = read_image("images/cow2.png")
+cow3_int = read_image("images/cow3.png")
+cow4_int = read_image("images/cow4.png")
+cow5_int = read_image("images/cow5.png")
+dog_list = [
+    # cow1_int,
+    # cow2_int,
+    # cow3_int,
+    # cow4_int,
+    cow5_int,
+]
 
 grid = make_grid(dog_list)
 show(grid)
-
-# %%
-from torchvision.utils import draw_bounding_boxes, draw_segmentation_masks
-
-
-boxes = torch.tensor([[50, 50, 100, 200], [210, 150, 350, 430]], dtype=torch.float)
-colors = ["blue", "yellow"]
-result = draw_bounding_boxes(dog1_int, boxes, colors=colors, width=5)
-show(result)
 
 # %%
 
@@ -84,12 +89,12 @@ show(dogs_with_boxes)
 
 # %%
 
-weights = MaskRCNN_ResNet50_FPN_Weights.DEFAULT
+weights = MaskRCNN_ResNet50_FPN_V2_Weights.DEFAULT
 transforms = weights.transforms()
 
 images = [transforms(d) for d in dog_list]
 
-model = maskrcnn_resnet50_fpn(weights=weights, progress=False)
+model = maskrcnn_resnet50_fpn_v2(weights=weights, progress=False)
 model = model.eval()
 
 output = model(images)
@@ -115,13 +120,13 @@ print(f"shape = {dog1_bool_masks.shape}, dtype = {dog1_bool_masks.dtype}")
 # There's an extra dimension (1) to the masks. We need to remove it
 dog1_bool_masks = dog1_bool_masks.squeeze(1)
 
-show(draw_segmentation_masks(dog1_int, dog1_bool_masks, alpha=0.9))
+show(draw_segmentation_masks(cow2_int, dog1_bool_masks, alpha=0.9))
 
 # %%
 print(dog1_output["scores"])
 
 # %%
-score_threshold = 0.75
+score_threshold = 0.95
 
 boolean_masks = [
     out["masks"][out["scores"] > score_threshold] > proba_threshold for out in output
@@ -187,13 +192,16 @@ show(draw_segmentation_masks(frame_uint8, cow_bool_masks, alpha=0.9))
 print(cow_output["scores"])
 
 # %%
-score_threshold = 0.5
+score_threshold = 0.7
 
 boolean_masks = [
     out["masks"][out["scores"] > score_threshold] > proba_threshold for out in output
 ]
 
-cows_with_masks = [draw_segmentation_masks(frame_uint8, boolean_masks[0].squeeze(1))]
+cows_with_masks = [
+    draw_segmentation_masks(img, mask.squeeze(1))
+    for img, mask in zip(dog_list, boolean_masks)
+]
 show(cows_with_masks)
 
 # %%
