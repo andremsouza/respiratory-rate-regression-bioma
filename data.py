@@ -12,6 +12,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 import torchvision
+from torchvision.transforms import GaussianBlur, Resize
 
 # %% [markdown]
 # # Constants
@@ -59,21 +60,6 @@ class VideoDataset(Dataset):
 # %%
 
 
-def normalize(video: torch.Tensor) -> torch.Tensor:
-    """Normalize the video."""
-    return (video - video.mean()) / video.std()
-
-
-def gaussian_blur(video: torch.Tensor) -> torch.Tensor:
-    """Apply Gaussian blur to the video."""
-    raise NotImplementedError("Gaussian blur not implemented yet.")
-
-
-def segment(video: torch.Tensor, batch_size=16, stride=8) -> torch.Tensor:
-    """Segment the video using a segmentation model."""
-    raise NotImplementedError("Segmentation model not implemented yet.")
-
-
 def instance_segment(
     video: torch.Tensor,
     model,
@@ -85,6 +71,10 @@ def instance_segment(
     verbose=False,
 ) -> torch.Tensor:
     """Segment the video using an instance segmentation model."""
+    # send model to device
+    model.to(device)
+    # set model to evaluation mode
+    model.eval()
     if verbose:
         print("Performing instance segmentation on video with shape", video.shape)
     # get the preprocessing function for the model
@@ -162,6 +152,10 @@ def semantic_segment(
     Returns:
         np.ndarray: The segmentation masks for the video.
     """
+    # send model to device
+    model.to(device)
+    # set model to evaluation mode
+    model.eval()
     if verbose:
         print("Performing semantic segmentation on video with shape", video.shape)
     # get the preprocessing function for the model
@@ -199,6 +193,79 @@ def semantic_segment(
     if verbose:
         print("Done processing video.")
     return torch.tensor(np.stack(masks))
+
+
+def segment(
+    video: torch.Tensor,
+    threshold=0.0,
+    gaussian_blur=False,
+    kernel_size=3,
+    sigma=(0.1, 2.0),
+    batch_size=16,
+    stride=8,
+    device=DEVICE,
+    verbose=False,
+) -> torch.Tensor:
+    """Segment the video using a segmentation model."""
+    # perform semantic segmentation on video
+    semantic_masks = semantic_segment(
+        video=video,
+        model=torchvision.models.segmentation.deeplabv3_resnet50(
+            weights=torchvision.models.segmentation.DeepLabV3_ResNet50_Weights.DEFAULT
+        ).to(device),
+        weights=torchvision.models.segmentation.DeepLabV3_ResNet50_Weights.DEFAULT,
+        batch_size=batch_size,
+        stride=stride,
+        device=device,
+        verbose=verbose,
+    )
+    # free up memory
+    gc.collect()
+    torch.cuda.empty_cache()
+    # perform instance segmentation on video
+    instance_masks = instance_segment(
+        video=video,
+        model=torchvision.models.detection.maskrcnn_resnet50_fpn_v2(
+            weights=torchvision.models.detection.MaskRCNN_ResNet50_FPN_V2_Weights.DEFAULT
+        ).to(device),
+        weights=torchvision.models.detection.MaskRCNN_ResNet50_FPN_V2_Weights.DEFAULT,
+        threshold=0.0,
+        batch_size=batch_size,
+        stride=stride,
+        device=device,
+        verbose=verbose,
+    )
+    # free up memory
+    gc.collect()
+    torch.cuda.empty_cache()
+    # binarize the semantic masks
+    semantic_masks = semantic_masks > threshold
+    # binarize the instance masks
+    instance_masks = instance_masks > threshold
+    # if gaussian_blur: apply gaussian blur to the masks and binarize them
+    if gaussian_blur:
+        gaussian_blur = GaussianBlur(kernel_size=kernel_size, sigma=sigma)
+        semantic_masks = gaussian_blur(semantic_masks) > 0.0
+        instance_masks = gaussian_blur(instance_masks) > 0.0
+    # verify shapes of masks
+    # if shape different than video, resize masks
+    if (
+        semantic_masks.shape[1] != video.shape[1]
+        or semantic_masks.shape[2] != video.shape[2]
+    ):
+        resize = Resize(size=(video.shape[1], video.shape[2]))
+        semantic_masks = resize(semantic_masks)
+    if (
+        instance_masks.shape[1] != video.shape[1]
+        or instance_masks.shape[2] != video.shape[2]
+    ):
+        resize = Resize(size=(video.shape[1], video.shape[2]))
+        instance_masks = resize(instance_masks)
+    # combine the semantic and instance masks with logical AND
+    masks = semantic_masks & instance_masks
+    # apply mask to video
+    masked_video = video * masks.unsqueeze(1).float()
+    return masked_video
 
 
 def sliding_window(
@@ -266,5 +333,29 @@ del model
 del weights
 gc.collect()
 torch.cuda.empty_cache()
+
+# %%
+# Test segmentation
+masked_video = segment(
+    video,
+    threshold=0.5,
+    gaussian_blur=True,
+    kernel_size=3,
+    sigma=(0.1, 2.0),
+    batch_size=1,
+    stride=1,
+    device=DEVICE,
+    verbose=True,
+)
+
+# %%
+# Save video
+torchvision.io.write_video(
+    "videos/video1_01_masked.mp4",
+    masked_video,
+    fps=info["video_fps"],
+    video_codec="libx264",
+    audio_codec="aac",
+)
 
 # %%
