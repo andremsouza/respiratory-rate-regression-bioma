@@ -5,6 +5,7 @@
 
 # %%
 import gc
+import glob
 import os
 
 import numpy as np
@@ -13,6 +14,8 @@ import torch
 from torch.utils.data import Dataset
 import torchvision
 from torchvision.transforms import GaussianBlur, Resize
+
+import config
 
 # %% [markdown]
 # # Constants
@@ -192,7 +195,7 @@ def semantic_segment(
         torch.cuda.empty_cache()
     if verbose:
         print("Done processing video.")
-    return torch.tensor(np.stack(masks))
+    return torch.tensor(np.stack(masks)).unsqueeze(1)
 
 
 def segment(
@@ -264,7 +267,7 @@ def segment(
     # combine the semantic and instance masks with logical AND
     masks = semantic_masks & instance_masks
     # apply mask to video
-    masked_video = video * masks.unsqueeze(1).float()
+    masked_video = (video.permute(0, 3, 1, 2) * masks).permute(0, 2, 3, 1)
     return masked_video
 
 
@@ -276,86 +279,90 @@ def sliding_window(
 
 
 # %%
-# Load video with PyTorch
-video, _, info = torchvision.io.read_video("videos/video1_01.mp4", pts_unit="sec")
-
-# %% [markdown]
-# # Test semantic segmentation
-
-# %%
-# Load model and weights
-weights = torchvision.models.segmentation.DeepLabV3_ResNet50_Weights.DEFAULT
-model = torchvision.models.segmentation.deeplabv3_resnet50(weights=weights)
-model.to(DEVICE)
-model.eval()
-
-# %%
-semantic_masks = semantic_segment(
-    video,
-    model,
-    weights,
-    batch_size=1,
-    stride=1,
-    device=DEVICE,
-    verbose=True,
-)
-
-# delete model and weights to free up memory
-del model
-del weights
-gc.collect()
-torch.cuda.empty_cache()
-
-# %% [markdown]
-# # Test instance segmentation
-
-# %%
-# Load model and weights
-weights = torchvision.models.detection.MaskRCNN_ResNet50_FPN_V2_Weights.DEFAULT
-model = torchvision.models.detection.maskrcnn_resnet50_fpn_v2(weights=weights)
-model.to(DEVICE)
-model.eval()
+if __name__ == "__main__":
+    # For each video in data directory, load, segment, and save
+    for video_path in glob.glob(f"{config.DATA_DIRECTORY}*.mp4"):
+        # get video name without extension
+        video_name = os.path.splitext(os.path.basename(video_path))[0]
+        # Load video with PyTorch
+        video, _, info = torchvision.io.read_video(
+            video_path, pts_unit="sec", output_format="THWC"
+        )
+        # if masked video already exists, skip
+        if os.path.exists(f"{config.DATA_DIRECTORY}/masked/{video_name}.mp4"):
+            continue
+        # Segment video
+        masked_video = segment(
+            video,
+            threshold=0.5,
+            gaussian_blur=True,
+            kernel_size=3,
+            sigma=(0.1, 2.0),
+            batch_size=1,
+            stride=1,
+            device=DEVICE,
+            verbose=True,
+        )
+        # Save video
+        torchvision.io.write_video(
+            f"{config.DATA_DIRECTORY}/masked/{video_name}.mp4",
+            masked_video,
+            fps=info["video_fps"],
+            video_codec="libx264",
+            audio_codec="aac",
+        )
+        # Force garbage collection to free up memory
+        del video
+        del masked_video
+        gc.collect()
+        torch.cuda.empty_cache()
 
 # %%
-instance_masks = instance_segment(
-    video,
-    model,
-    weights,
-    threshold=0.5,
-    batch_size=1,
-    stride=1,
-    device=DEVICE,
-    verbose=True,
-)
+# # # Test semantic segmentation
+# # %%
+# # Load model and weights
+# weights = torchvision.models.segmentation.DeepLabV3_ResNet50_Weights.DEFAULT
+# model = torchvision.models.segmentation.deeplabv3_resnet50(weights=weights)
+# model.to(DEVICE)
+# model.eval()
 
-# delete model and weights to free up memory
-del model
-del weights
-gc.collect()
-torch.cuda.empty_cache()
-
-# %%
-# Test segmentation
-masked_video = segment(
-    video,
-    threshold=0.5,
-    gaussian_blur=True,
-    kernel_size=3,
-    sigma=(0.1, 2.0),
-    batch_size=1,
-    stride=1,
-    device=DEVICE,
-    verbose=True,
-)
-
-# %%
-# Save video
-torchvision.io.write_video(
-    "videos/video1_01_masked.mp4",
-    masked_video,
-    fps=info["video_fps"],
-    video_codec="libx264",
-    audio_codec="aac",
-)
+# # %%
+# semantic_masks = semantic_segment(
+#     video,
+#     model,
+#     weights,
+#     batch_size=1,
+#     stride=1,
+#     device=DEVICE,
+#     verbose=True,
+# )
+# # delete model and weights to free up memory
+# del model
+# del weights
+# gc.collect()
+# torch.cuda.empty_cache()
+# # # Test instance segmentation
+# # %%
+# # Load model and weights
+# weights = torchvision.models.detection.MaskRCNN_ResNet50_FPN_V2_Weights.DEFAULT
+# model = torchvision.models.detection.maskrcnn_resnet50_fpn_v2(weights=weights)
+# model.to(DEVICE)
+# model.eval()
+# # %%
+# instance_masks = instance_segment(
+#     video,
+#     model,
+#     weights,
+#     threshold=0.5,
+#     batch_size=1,
+#     stride=1,
+#     device=DEVICE,
+#     verbose=True,
+# )
+# # delete model and weights to free up memory
+# del model
+# del weights
+# gc.collect()
+# torch.cuda.empty_cache()
 
 # %%
