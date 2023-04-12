@@ -113,10 +113,15 @@ def instance_segment(
                 areas.append((box[2] - box[0]) * (box[3] - box[1]))
             areas = torch.tensor(areas)
             # get the mask with the highest bbox area
-            mask = cow_masks[areas.argmax()]
-            # get the score for the mask
-            score = cow_scores[areas.argmax()]
-            # add the mask to the list of masks if the score is above the threshold
+            # if there are no masks, append a max with ones
+            if len(areas) == 0:
+                mask = torch.ones(1, video.shape[1], video.shape[2])
+                score = 0.0
+            else:
+                mask = cow_masks[areas.argmax()]
+                # get the score for the mask
+                score = cow_scores[areas.argmax()]
+                # add the mask to the list of masks if the score is above the threshold
             if score >= threshold:
                 masks.append(mask.numpy(force=True))
         # free up memory
@@ -125,7 +130,7 @@ def instance_segment(
 
         gc.collect()
         torch.cuda.empty_cache()
-    return torch.tensor(np.stack(masks))
+    return torch.tensor(np.stack(masks)).detach().cpu()
 
 
 def semantic_segment(
@@ -195,7 +200,7 @@ def semantic_segment(
         torch.cuda.empty_cache()
     if verbose:
         print("Done processing video.")
-    return torch.tensor(np.stack(masks)).unsqueeze(1)
+    return torch.tensor(np.stack(masks)).unsqueeze(1).detach().cpu()
 
 
 def segment(
@@ -268,7 +273,7 @@ def segment(
     masks = semantic_masks & instance_masks
     # apply mask to video
     masked_video = (video.permute(0, 3, 1, 2) * masks).permute(0, 2, 3, 1)
-    return masked_video
+    return masked_video.detach().cpu()
 
 
 def sliding_window(
@@ -288,20 +293,26 @@ if __name__ == "__main__":
         video, _, info = torchvision.io.read_video(
             video_path, pts_unit="sec", output_format="THWC"
         )
+        # Resize video to 480p
+        video = Resize(size=(480, 640))(video.permute(0, 3, 1, 2)).permute(0, 2, 3, 1)
         # if masked video already exists, skip
         if os.path.exists(f"{config.DATA_DIRECTORY}/masked/{video_name}.mp4"):
             continue
         # Segment video
-        masked_video = segment(
-            video,
-            threshold=0.5,
-            gaussian_blur=True,
-            kernel_size=3,
-            sigma=(0.1, 2.0),
-            batch_size=1,
-            stride=1,
-            device=DEVICE,
-            verbose=True,
+        masked_video = (
+            segment(
+                video,
+                threshold=0.5,
+                gaussian_blur=True,
+                kernel_size=3,
+                sigma=(0.1, 2.0),
+                batch_size=1,
+                stride=1,
+                device=DEVICE,
+                verbose=True,
+            )
+            .detach()
+            .cpu()
         )
         # Save video
         torchvision.io.write_video(
