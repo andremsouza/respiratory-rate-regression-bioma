@@ -45,7 +45,7 @@ class VideoDataset(Dataset):
         """Return the length of the dataset."""
         return len(self.data)
 
-    def __getitem__(self, idx):  #  -> tuple[torch.Tensor, torch.float]:
+    def __getitem__(self, idx):  # -> tuple[torch.Tensor, torch.float]:
         """Return the idx-th element of the dataset."""
         video = np.load(os.path.join(self.data_dir, self.data.iloc[idx, 0]))
         video = torch.tensor(video, dtype=torch.float)
@@ -108,9 +108,9 @@ def instance_segment(
             # get the mask for the cow class with the highest bbox area
             # NOTE: this is not the best way to do this, but it works for now
             # get bbox areas
-            areas = []
+            areas: torch.Tensor = []  # type: ignore
             for box in output["boxes"][cow_idxs]:
-                areas.append((box[2] - box[0]) * (box[3] - box[1]))
+                areas.append((box[2] - box[0]) * (box[3] - box[1]))  # type: ignore
             areas = torch.tensor(areas)
             # get the mask with the highest bbox area
             # if there are no masks, append a max with ones
@@ -130,7 +130,7 @@ def instance_segment(
 
         gc.collect()
         torch.cuda.empty_cache()
-    return torch.tensor(np.stack(masks)).detach().cpu()
+    return torch.tensor(np.stack(masks)).detach().to(device)
 
 
 def semantic_segment(
@@ -200,7 +200,7 @@ def semantic_segment(
         torch.cuda.empty_cache()
     if verbose:
         print("Done processing video.")
-    return torch.tensor(np.stack(masks)).unsqueeze(1).detach().cpu()
+    return torch.tensor(np.stack(masks)).unsqueeze(1).detach().to(device)
 
 
 def segment(
@@ -273,14 +273,7 @@ def segment(
     masks = semantic_masks & instance_masks
     # apply mask to video
     masked_video = (video.permute(0, 3, 1, 2) * masks).permute(0, 2, 3, 1)
-    return masked_video.detach().cpu()
-
-
-def sliding_window(
-    video: torch.Tensor, length: int = 16, stride: int = 8
-) -> torch.Tensor:
-    """Apply sliding window to the video."""
-    raise NotImplementedError("Sliding window not implemented yet.")
+    return masked_video.detach().to(device)
 
 
 # %%
