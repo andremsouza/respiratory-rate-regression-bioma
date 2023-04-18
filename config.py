@@ -10,13 +10,14 @@ import torch
 
 # %%
 # ANNOTATION_FILE = "/srv/andre/30_09_2020.csv"
-ANNOTATION_FILE = "./Resp_30s.xlsx"
+ANNOTATION_FILE = "./Resp_30s.csv"
+LABEL_COLUMN = "Taxa / 60s"
 TRAIN_ANNOTATION_FILE = "./train_annotation.csv"
 TEST_ANNOTATION_FILE = "./test_annotation.csv"
 
 ANNOTATION_SECONDS = 30
 
-DATA_DIRECTORY = "./videos/"
+DATA_DIRECTORY = "./videos/masked/"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 BATCH_SIZE = 16

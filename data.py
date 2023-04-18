@@ -33,32 +33,134 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class VideoDataset(Dataset):
     """Dataset for video data."""
 
-    def __init__(self, data_dir, transform=None, target_transform=None):
+    def __init__(
+        self, annotations_file, data_dir, transform=None, target_transform=None
+    ):
         """Initialize the dataset."""
+        if isinstance(annotations_file, str):
+            # if csv file, load it
+            if annotations_file.endswith(".csv"):
+                self.annotations = pd.read_csv(annotations_file, index_col=0)
+            # if xlsx file, load the first sheet
+            elif annotations_file.endswith(".xlsx"):
+                self.annotations = pd.read_excel(
+                    annotations_file, header=0, index_col=0
+                )
+            else:
+                raise ValueError("Annotations file must be a csv or xlsx file.")
+        elif isinstance(annotations_file, pd.DataFrame):
+            # if dataframe, use it
+            self.annotations = annotations_file
+        else:
+            raise ValueError(
+                "Annotations file must be a csv or xlsx file path or a dataframe."
+            )
+        # convert label column to float
+        self.annotations.loc[:, config.LABEL_COLUMN] = self.annotations.loc[
+            :, config.LABEL_COLUMN
+        ].astype(float)
+        # Remove rows with missing values
+        self.annotations = self.annotations.loc[
+            (
+                self.annotations.loc[:, config.LABEL_COLUMN].notna()
+                & self.annotations.loc[:, config.LABEL_COLUMN]
+                > 0
+            ),
+            :,
+        ]
         self.data_dir = data_dir
+        # List videos
+        self.file_list = [
+            file
+            for file in os.listdir(data_dir)
+            if file.endswith(".mp4") and file.split(".")[0] in self.annotations.index
+        ]
         self.transform = transform
         self.target_transform = target_transform
-        self.data = pd.read_csv(os.path.join(data_dir, "data.csv"))
-        self.labels = pd.read_csv(os.path.join(data_dir, "labels.csv"))
 
     def __len__(self):
         """Return the length of the dataset."""
-        return len(self.data)
+        return len(self.annotations)
 
     def __getitem__(self, idx):  # -> tuple[torch.Tensor, torch.float]:
         """Return the idx-th element of the dataset."""
-        video = np.load(os.path.join(self.data_dir, self.data.iloc[idx, 0]))
-        video = torch.tensor(video, dtype=torch.float)
+        # file name in index
+        video_name = self.annotations.index[idx] + ".mp4"
+        video, _, _ = torchvision.io.read_video(
+            os.path.join(self.data_dir, video_name),
+            pts_unit="sec",
+            output_format="TCHW",
+        )
         if self.transform:
             video = self.transform(video)
-        label = torch.tensor(self.labels.iloc[idx, 1], dtype=torch.float)
+        label = self.annotations.iloc[idx, config.LABEL_COLUMN_IDX]
         if self.target_transform:
             label = self.target_transform(label)
         return video, label
 
 
 # %% [markdown]
-# # Transform functions
+# # Transforms
+
+# %%
+
+
+def expand_video_into_batches(
+    video: torch.Tensor,
+    batch_size: int = 16,
+    stride: int = 8,
+    device: torch.device = DEVICE,
+) -> torch.Tensor:
+    """Expand a video with a single label into batches of frames.
+
+    Args:
+        video: A tensor of shape (frames, channels, height, width).
+        batch_size: The number of frames in each batch.
+        stride: The number of frames to skip between batches.
+        device: The device to send the batches to.
+
+    Returns:
+        A tensor of shape (batches, batch_size, channels, height, width).
+    """
+    # create a list of batches
+    batches = []
+    # iterate over the video in batches of size `batch_size`
+    for i in range(0, len(video), stride):
+        # check if there are enough frames left to fill a batch
+        if i + batch_size > len(video):
+            # if not, skip
+            break
+        # add the next batch of frames to the list
+        batches.append(video[i : i + batch_size])
+    # stack the batches into a tensor
+    batches = torch.stack(batches)
+    # send the tensor to the device
+    batches = batches.to(device)
+    return batches
+
+
+def expand_label(
+    label: float, number_of_batches: int, device: torch.device = DEVICE
+) -> torch.Tensor:
+    """Expand a label into a tensor of shape (batches, 1).
+
+    Args:
+        label: A tensor of shape (1).
+        number_of_batches: The number of batches to expand the label into.
+        device: The device to send the batches to.
+
+    Returns:
+        A tensor of shape (batches, 1).
+    """
+    # create a tensor of shape (batches, 1) filled with the label
+    label_tensor = torch.full((number_of_batches, 1), label)
+    # send the tensor to the device
+    label_tensor = label_tensor.to(device)
+    return label_tensor
+
+
+# %% [markdown]
+# # Segmentation functions
 
 # %%
 

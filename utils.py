@@ -41,10 +41,10 @@ def train(
     model.train()  # set model to training mode
     metrics: dict = {
         "loss": [],
-        "accuracy": [],
-        "hamming": [],
-        "f1-score": [],
-        "roc_auc": [],
+        # "accuracy": [],
+        # "hamming": [],
+        # "f1-score": [],
+        # "roc_auc": [],
     }
     # loop over epochs
     for epoch in range(num_epochs):
@@ -59,6 +59,9 @@ def train(
         # loop over data
         for inputs, labels in train_loader:
             inputs = inputs.to(device)
+            # if labels.shape[0] < inputs.shape[0], expand labels to match inputs
+            if labels.shape[0] < inputs.shape[0]:
+                labels = labels.expand(inputs.shape[0], labels.shape[1])
             labels = labels.to(device)
             # zero the parameter gradients
             optimizer.zero_grad()
@@ -86,92 +89,92 @@ def train(
             # running_corrects += int(torch.sum(preds == labels.data))
         # Calculate epoch metrics
         epoch_loss: float = running_loss / float(len(train_loader.dataset))  # type: ignore
-        epoch_accuracy = sklearn.metrics.accuracy_score(
-            y_true=result_labels.cpu().numpy().astype(int),
-            y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
-        )
-        epoch_hamming = sklearn.metrics.hamming_loss(
-            y_true=result_labels.cpu().numpy().astype(int),
-            y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
-        )
-        epoch_f1_macro = sklearn.metrics.f1_score(
-            y_true=result_labels.cpu().numpy().astype(int),
-            y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
-            average="macro",
-            zero_division="warn",
-        )
-        epoch_f1_micro = sklearn.metrics.f1_score(
-            y_true=result_labels.cpu().numpy().astype(int),
-            y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
-            average="micro",
-            zero_division="warn",
-        )
-        epoch_f1_weighted = sklearn.metrics.f1_score(
-            y_true=result_labels.cpu().numpy().astype(int),
-            y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
-            average="weighted",
-            zero_division="warn",
-        )
-        epoch_f1_none = sklearn.metrics.f1_score(
-            y_true=result_labels.cpu().numpy().astype(int),
-            y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
-            average=None,
-            zero_division="warn",
-        )
-        epoch_roc_auc_macro = sklearn.metrics.roc_auc_score(
-            y_true=result_labels.cpu().numpy().astype(int),
-            y_score=result_preds.cpu().numpy(),
-            average="macro",
-            multi_class="ovr",
-        )
-        epoch_roc_auc_micro = sklearn.metrics.roc_auc_score(
-            y_true=result_labels.cpu().numpy().astype(int),
-            y_score=result_preds.cpu().numpy(),
-            average="micro",
-            multi_class="ovr",
-        )
-        epoch_roc_auc_weighted = sklearn.metrics.roc_auc_score(
-            y_true=result_labels.cpu().numpy().astype(int),
-            y_score=result_preds.cpu().numpy(),
-            average="weighted",
-            multi_class="ovr",
-        )
-        epoch_roc_auc_none = sklearn.metrics.roc_auc_score(
-            y_true=result_labels.cpu().numpy().astype(int),
-            y_score=result_preds.cpu().numpy(),
-            average=None,
-            multi_class="ovr",
-        )
+        # epoch_accuracy = sklearn.metrics.accuracy_score(
+        #     y_true=result_labels.cpu().numpy().astype(int),
+        #     y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        # )
+        # epoch_hamming = sklearn.metrics.hamming_loss(
+        #     y_true=result_labels.cpu().numpy().astype(int),
+        #     y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        # )
+        # epoch_f1_macro = sklearn.metrics.f1_score(
+        #     y_true=result_labels.cpu().numpy().astype(int),
+        #     y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        #     average="macro",
+        #     zero_division="warn",
+        # )
+        # epoch_f1_micro = sklearn.metrics.f1_score(
+        #     y_true=result_labels.cpu().numpy().astype(int),
+        #     y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        #     average="micro",
+        #     zero_division="warn",
+        # )
+        # epoch_f1_weighted = sklearn.metrics.f1_score(
+        #     y_true=result_labels.cpu().numpy().astype(int),
+        #     y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        #     average="weighted",
+        #     zero_division="warn",
+        # )
+        # epoch_f1_none = sklearn.metrics.f1_score(
+        #     y_true=result_labels.cpu().numpy().astype(int),
+        #     y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        #     average=None,
+        #     zero_division="warn",
+        # )
+        # epoch_roc_auc_macro = sklearn.metrics.roc_auc_score(
+        #     y_true=result_labels.cpu().numpy().astype(int),
+        #     y_score=result_preds.cpu().numpy(),
+        #     average="macro",
+        #     multi_class="ovr",
+        # )
+        # epoch_roc_auc_micro = sklearn.metrics.roc_auc_score(
+        #     y_true=result_labels.cpu().numpy().astype(int),
+        #     y_score=result_preds.cpu().numpy(),
+        #     average="micro",
+        #     multi_class="ovr",
+        # )
+        # epoch_roc_auc_weighted = sklearn.metrics.roc_auc_score(
+        #     y_true=result_labels.cpu().numpy().astype(int),
+        #     y_score=result_preds.cpu().numpy(),
+        #     average="weighted",
+        #     multi_class="ovr",
+        # )
+        # epoch_roc_auc_none = sklearn.metrics.roc_auc_score(
+        #     y_true=result_labels.cpu().numpy().astype(int),
+        #     y_score=result_preds.cpu().numpy(),
+        #     average=None,
+        #     multi_class="ovr",
+        # )
         # Append epoch metrics
         metrics["loss"].append(epoch_loss)
-        metrics["accuracy"].append(epoch_accuracy)
-        metrics["hamming"].append(epoch_hamming)
-        metrics["f1-score_macro"].append(epoch_f1_macro)
-        metrics["f1-score_micro"].append(epoch_f1_micro)
-        metrics["f1-score_weighted"].append(epoch_f1_weighted)
-        metrics["f1-score_none"].append(epoch_f1_none)
-        metrics["roc_auc_macro"].append(epoch_roc_auc_macro)
-        metrics["roc_auc_micro"].append(epoch_roc_auc_micro)
-        metrics["roc_auc_weighted"].append(epoch_roc_auc_weighted)
-        metrics["roc_auc_none"].append(epoch_roc_auc_none)
+        # metrics["accuracy"].append(epoch_accuracy)
+        # metrics["hamming"].append(epoch_hamming)
+        # metrics["f1-score_macro"].append(epoch_f1_macro)
+        # metrics["f1-score_micro"].append(epoch_f1_micro)
+        # metrics["f1-score_weighted"].append(epoch_f1_weighted)
+        # metrics["f1-score_none"].append(epoch_f1_none)
+        # metrics["roc_auc_macro"].append(epoch_roc_auc_macro)
+        # metrics["roc_auc_micro"].append(epoch_roc_auc_micro)
+        # metrics["roc_auc_weighted"].append(epoch_roc_auc_weighted)
+        # metrics["roc_auc_none"].append(epoch_roc_auc_none)
         # Print epoch metrics
         if verbose:
             print(f"Epoch {epoch + 1}/{num_epochs}")
             print(
                 f"Training Loss: "
                 f"{epoch_loss:.4f} "
-                f"Accuracy: {epoch_accuracy:.4f} "
-                f"Hamming: {epoch_hamming:.4f} "
-                f"\n"
-                f"F1 (macro): {epoch_f1_macro} "
-                f"F1 (micro): {epoch_f1_micro} "
-                f"F1 (weighted): {epoch_f1_weighted} "
-                f"F1 (none): {epoch_f1_none} "
-                f"\n"
-                f"ROC AUC (macro): {epoch_roc_auc_macro:.4f} "
-                f"ROC AUC (micro): {epoch_roc_auc_micro:.4f} "
-                f"ROC AUC (weighted): {epoch_roc_auc_weighted:.4f} "
-                f"ROC AUC (none): {epoch_roc_auc_none} "
+                # f"Accuracy: {epoch_accuracy:.4f} "
+                # f"Hamming: {epoch_hamming:.4f} "
+                # f"\n"
+                # f"F1 (macro): {epoch_f1_macro} "
+                # f"F1 (micro): {epoch_f1_micro} "
+                # f"F1 (weighted): {epoch_f1_weighted} "
+                # f"F1 (none): {epoch_f1_none} "
+                # f"\n"
+                # f"ROC AUC (macro): {epoch_roc_auc_macro:.4f} "
+                # f"ROC AUC (micro): {epoch_roc_auc_micro:.4f} "
+                # f"ROC AUC (weighted): {epoch_roc_auc_weighted:.4f} "
+                # f"ROC AUC (none): {epoch_roc_auc_none} "
             )
     return metrics
 
@@ -324,7 +327,7 @@ def validate(
     criterion: torch.nn.Module,
     device: torch.device,
     verbose: bool = True,
-) -> tuple[float, float, float]:
+):
     """Validate a PyTorch model.
 
     Args:
