@@ -28,7 +28,11 @@ LEARNING_RATES = [1e-3, 1e-4, 1e-5, 1e-6]
 
 class MViTV2Regression(nn.Module):
     def __init__(self, weights=MViT_V2_S_Weights.DEFAULT, *args, **kwargs) -> None:
-        """Initialize the model."""
+        """Initialize the model.
+
+        Args:
+            weights (MViT_V2_S_Weights, optional): Weights for the model. Defaults to MViT_V2_S_Weights.DEFAULT.
+        """
         super().__init__(*args, **kwargs)
         self.model = mvit_v2_s(weights=weights)
         self.weights = weights
@@ -39,7 +43,14 @@ class MViTV2Regression(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass."""
+        """Forward pass.
+
+        Args:
+            x (torch.Tensor): Input tensor. Shape: (batch_size, num_frames, num_channels, height, width)
+
+        Returns:
+            torch.Tensor: Output tensor. Shape: (batch_size, 1)
+        """
         return self.model(x)
 
 
