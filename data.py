@@ -36,7 +36,15 @@ class VideoDataset(Dataset):
     def __init__(
         self, annotations_file, data_dir, transform=None, target_transform=None
     ):
-        """Initialize the dataset."""
+        """Initialize the dataset.
+
+        Args:
+            annotations_file (str): Path to the annotation file.
+            data_dir (str): Path to the data directory.
+            transform (callable, optional): Optional transform to be applied on a sample.
+            target_transform (callable, optional): Optional transform to be applied on the
+                target of a sample.
+        """
         if isinstance(annotations_file, str):
             # if csv file, load it
             if annotations_file.endswith(".csv"):
@@ -78,12 +86,19 @@ class VideoDataset(Dataset):
         self.transform = transform
         self.target_transform = target_transform
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Return the length of the dataset."""
         return len(self.annotations)
 
     def __getitem__(self, idx):  # -> tuple[torch.Tensor, torch.float]:
-        """Return the idx-th element of the dataset."""
+        """Return the idx-th element of the dataset.
+
+        Args:
+            idx (int): Index of the element to return.
+
+        Returns:
+            tuple[torch.Tensor, torch.float]: Video and label.
+        """
         # file name in index
         video_name = self.annotations.index[idx] + ".mp4"
         video, _, _ = torchvision.io.read_video(
@@ -175,7 +190,21 @@ def instance_segment(
     device=DEVICE,
     verbose=False,
 ) -> torch.Tensor:
-    """Segment the video using an instance segmentation model."""
+    """Segment the video using an instance segmentation model.
+
+    Args:
+        video: A tensor of shape (frames, height, width, channels).
+        model: The model to use for segmentation.
+        weights: The weights to use for segmentation.
+        threshold: The threshold to use for segmentation.
+        batch_size: The number of frames to process in each batch.
+        stride: The number of frames to skip between batches.
+        device: The device to send the batches to.
+        verbose: Whether to print progress.
+
+    Returns:
+        A mask of the same shape as the video.
+    """
     # send model to device
     model.to(device)
     # set model to evaluation mode
@@ -316,7 +345,29 @@ def segment(
     device=DEVICE,
     verbose=False,
 ) -> torch.Tensor:
-    """Segment the video using a segmentation model."""
+    """Segment the video using a segmentation model.
+
+    Args:
+        video (torch.Tensor): The video to segment.
+        threshold (float, optional): The minimum score for a mask to be included in the
+            output. Defaults to 0.0.
+        gaussian_blur (bool, optional): Whether to apply a gaussian blur to the masks.
+            Defaults to False.
+        kernel_size (int, optional): The size of the kernel to use for the gaussian
+            blur. Defaults to 3.
+        sigma (tuple, optional): The range of standard deviations to use for the gaussian
+            blur. Defaults to (0.1, 2.0).
+        batch_size (int, optional): The number of frames to process at a time. Defaults to
+            16.
+        stride (int, optional): The number of frames to skip between batches. Defaults to
+            8.
+        device (torch.device, optional): The device to use for processing. Defaults to
+            DEVICE.
+        verbose (bool, optional): Whether to print progress. Defaults to False.
+
+    Returns:
+        torch.Tensor: The segmentation masks for the video.
+    """
     # perform semantic segmentation on video
     semantic_masks = semantic_segment(
         video=video,
