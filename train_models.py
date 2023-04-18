@@ -2,10 +2,13 @@
 
 This script is used to setup and run the models. It is used to train the models
 and save the trained models.
+
+It is recommended to run this script with nohup and redirecting the output to a
+file. For example:
+    > nohup python train_models.py > train_models.out &
 """
 # %%
 import datetime
-import warnings
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -23,6 +26,7 @@ SKIP_TRAINED_MODELS = True
 # # Data
 
 # %%
+# PyTorch device
 device = torch.device(config.DEVICE)
 # Load data
 # Use seed for selecting training and test data
@@ -44,7 +48,7 @@ except FileNotFoundError:
     train_annotation.to_csv(config.TRAIN_ANNOTATION_FILE, index=False)
     test_annotation.to_csv(config.TEST_ANNOTATION_FILE, index=False)
 
-    # %% [markdown]
+# %% [markdown]
 # # MViT-V2
 
 # %%
@@ -77,6 +81,9 @@ for learning_rate in models.LEARNING_RATES:
             continue
     except FileNotFoundError:
         # Touch file so it exists
+        # This crudely enables training multiple models in parallel
+        # However, if there is an interruption during training, the file will not be deleted
+        # In this case, the file will need to be deleted manually
         open(f"models/mvitv2_{learning_rate}.pt", "a", encoding="utf-8").close()
     except EOFError:
         continue
@@ -105,4 +112,3 @@ for learning_rate in models.LEARNING_RATES:
     )
 
 # %%
-# TODO: Test model and select samples with highest entropy
