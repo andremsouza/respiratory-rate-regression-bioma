@@ -13,7 +13,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 import torchvision
-from torchvision.transforms import GaussianBlur, Resize
+from torchvision.transforms import GaussianBlur, Grayscale, Resize
 
 import config
 
@@ -21,8 +21,8 @@ import config
 # # Constants
 
 # %%
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# DEVICE = "cpu"
+# DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = "cpu"
 
 # %% [markdown]
 # # Dataset
@@ -108,7 +108,7 @@ class VideoDataset(Dataset):
         )
         if self.transform:
             video = self.transform(video)
-        label = self.annotations.iloc[idx, config.LABEL_COLUMN_IDX]
+        label = self.annotations.loc[:, config.LABEL_COLUMN].iloc[idx]
         if self.target_transform:
             label = self.target_transform(label)
         return video, label
@@ -124,7 +124,8 @@ def expand_video_into_batches(
     video: torch.Tensor,
     batch_size: int = 16,
     stride: int = 8,
-    device: torch.device = DEVICE,
+    first_only: bool = False,
+    device: str | torch.device = DEVICE,
 ) -> torch.Tensor:
     """Expand a video with a single label into batches of frames.
 
@@ -140,17 +141,20 @@ def expand_video_into_batches(
     # create a list of batches
     batches = []
     # iterate over the video in batches of size `batch_size`
-    for i in range(0, len(video), stride):
+    for i in range(0, video.shape[1], stride):
         # check if there are enough frames left to fill a batch
-        if i + batch_size > len(video):
+        if i + batch_size > video.shape[1]:
             # if not, skip
             break
         # add the next batch of frames to the list
-        batches.append(video[i : i + batch_size])
+        batches.append(video[:, i : i + batch_size, :, :])
+        # if only the first batch is needed, stop
+        if first_only:
+            break
     # stack the batches into a tensor
     batches = torch.stack(batches)
     # send the tensor to the device
-    batches = batches.to(device)
+    # batches = batches.to(device)
     return batches
 
 
@@ -170,7 +174,7 @@ def expand_label(
     # create a tensor of shape (batches, 1) filled with the label
     label_tensor = torch.full((number_of_batches, 1), label)
     # send the tensor to the device
-    label_tensor = label_tensor.to(device)
+    # label_tensor = label_tensor.to(device)
     return label_tensor
 
 

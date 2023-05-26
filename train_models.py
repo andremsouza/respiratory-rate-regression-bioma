@@ -54,13 +54,15 @@ except FileNotFoundError:
 # %%
 # Create data loaders
 transforms = models.MViT_V2_S_Weights.DEFAULT.transforms()
+# torch.multiprocessing.set_start_method('spawn')
 train_loader = DataLoader(
     data.VideoDataset(
         config.TRAIN_ANNOTATION_FILE,
         config.DATA_DIRECTORY,
-        transform=lambda x: transforms(
-            data.expand_video_into_batches(x, batch_size=16, stride=8, device=device)
-        ),
+        transform=transforms,
+        # transforms(
+        # data.expand_video_into_batches(x, batch_size=16, stride=8, device=device)
+        # ),
         target_transform=lambda x: data.expand_label(x, 1, device=device),
     ),
     batch_size=1,

@@ -4,10 +4,13 @@
 # # Imports
 
 # %%
+import gc
+
 import torch
 import sklearn.metrics
 
 import config
+import data
 
 # %% [markdown]
 # # Functions
@@ -38,18 +41,14 @@ def train(
     Returns:
         dict: dictionary of metrics
     """
+    idx: int = 0
     model.train()  # set model to training mode
     metrics: dict = {
         "loss": [],
-        # "accuracy": [],
-        # "hamming": [],
-        # "f1-score": [],
-        # "roc_auc": [],
     }
     # loop over epochs
     for epoch in range(num_epochs):
         running_loss: float = 0.0
-        running_corrects: int = 0
         # initialize inputs and labels tensors
         inputs: torch.Tensor = torch.empty(0)
         labels: torch.Tensor = torch.empty(0)
@@ -58,124 +57,69 @@ def train(
         result_preds: torch.Tensor = torch.empty(0)
         # loop over data
         for inputs, labels in train_loader:
-            inputs = inputs.to(device)
-            # if labels.shape[0] < inputs.shape[0], expand labels to match inputs
-            if labels.shape[0] < inputs.shape[0]:
-                labels = labels.expand(inputs.shape[0], labels.shape[1])
-            labels = labels.to(device)
-            # zero the parameter gradients
-            optimizer.zero_grad()
-            # forward
-            # track history if only in train
-            with torch.set_grad_enabled(True):
-                outputs = model(inputs)
-                # multiclass classification
-                # get probability for each class based on threshold
-                # if probability >= threshold, then class = 1, else class = 0
-                # preds = (outputs >= config.PRED_THRESHOLD).float()
-                # calculate loss with predictions and labels
-                loss = criterion(outputs, labels)
-                # backward + optimize
-                loss.backward()
-                optimizer.step()
-
-            # statistics
-            running_loss += loss.item() * inputs.size(0)
-            running_corrects += int(
-                torch.sum((outputs >= config.PRED_THRESHOLD).float() == labels.data)
-            )
-            result_labels = torch.cat((result_labels, labels.detach().cpu()), dim=0)
-            result_preds = torch.cat((result_preds, outputs.detach().cpu()), dim=0)
-            # running_corrects += int(torch.sum(preds == labels.data))
+            # free GPU memory
+            torch.cuda.empty_cache()
+            # free memory
+            gc.collect()
+            # for each input, expand into batches of N frames with stride S
+            inputs = inputs.squeeze(0)
+            labels = labels.squeeze(0)
+            while inputs.shape[1] >= config.BATCH_SIZE:
+                # get first batch_size frames from inputs
+                inputs_first = data.expand_video_into_batches(
+                    inputs,
+                    batch_size=config.BATCH_SIZE,
+                    stride=config.STRIDE,
+                    first_only=True,
+                    device="cpu",
+                ).float()
+                # remove stride frames from inputs
+                inputs = inputs[:, config.STRIDE :, :, :].float()
+                # Increment number of samples
+                idx += 1
+                # send input and labels to device
+                inputs_first = inputs_first.float().to(device)
+                labels = labels.float().to(device)
+                # zero the parameter gradients
+                optimizer.zero_grad()
+                # forward
+                # track history if only in train
+                with torch.set_grad_enabled(True):
+                    outputs = model(inputs_first)
+                    loss = criterion(outputs, labels)
+                    # if verbose:
+                    #     print("inputs.shape:", inputs.shape)
+                    #     print("inputs_first.shape:", inputs_first.shape)
+                    #     print("outputs.shape:", outputs.shape)
+                    #     print("labels.shape:", labels.shape)
+                    #     print("outputs:", outputs)
+                    #     print("labels:", labels)
+                    #     print("loss:", loss)
+                    # backward + optimize
+                    loss.backward()
+                    optimizer.step()
+                # statistics
+                running_loss += loss.item()
+                result_labels = torch.cat((result_labels, labels.detach().cpu()), dim=0)
+                result_preds = torch.cat((result_preds, outputs.detach().cpu()), dim=0)
+                # running_corrects += int(torch.sum(preds == labels.data))
+                # free GPU memory
+                torch.cuda.empty_cache()
+                # free memory
+                del inputs_first
+                gc.collect()
         # Calculate epoch metrics
-        epoch_loss: float = running_loss / float(len(train_loader.dataset))  # type: ignore
-        # epoch_accuracy = sklearn.metrics.accuracy_score(
-        #     y_true=result_labels.cpu().numpy().astype(int),
-        #     y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
-        # )
-        # epoch_hamming = sklearn.metrics.hamming_loss(
-        #     y_true=result_labels.cpu().numpy().astype(int),
-        #     y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
-        # )
-        # epoch_f1_macro = sklearn.metrics.f1_score(
-        #     y_true=result_labels.cpu().numpy().astype(int),
-        #     y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
-        #     average="macro",
-        #     zero_division="warn",
-        # )
-        # epoch_f1_micro = sklearn.metrics.f1_score(
-        #     y_true=result_labels.cpu().numpy().astype(int),
-        #     y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
-        #     average="micro",
-        #     zero_division="warn",
-        # )
-        # epoch_f1_weighted = sklearn.metrics.f1_score(
-        #     y_true=result_labels.cpu().numpy().astype(int),
-        #     y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
-        #     average="weighted",
-        #     zero_division="warn",
-        # )
-        # epoch_f1_none = sklearn.metrics.f1_score(
-        #     y_true=result_labels.cpu().numpy().astype(int),
-        #     y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
-        #     average=None,
-        #     zero_division="warn",
-        # )
-        # epoch_roc_auc_macro = sklearn.metrics.roc_auc_score(
-        #     y_true=result_labels.cpu().numpy().astype(int),
-        #     y_score=result_preds.cpu().numpy(),
-        #     average="macro",
-        #     multi_class="ovr",
-        # )
-        # epoch_roc_auc_micro = sklearn.metrics.roc_auc_score(
-        #     y_true=result_labels.cpu().numpy().astype(int),
-        #     y_score=result_preds.cpu().numpy(),
-        #     average="micro",
-        #     multi_class="ovr",
-        # )
-        # epoch_roc_auc_weighted = sklearn.metrics.roc_auc_score(
-        #     y_true=result_labels.cpu().numpy().astype(int),
-        #     y_score=result_preds.cpu().numpy(),
-        #     average="weighted",
-        #     multi_class="ovr",
-        # )
-        # epoch_roc_auc_none = sklearn.metrics.roc_auc_score(
-        #     y_true=result_labels.cpu().numpy().astype(int),
-        #     y_score=result_preds.cpu().numpy(),
-        #     average=None,
-        #     multi_class="ovr",
-        # )
+        epoch_loss: float = running_loss / idx  # type: ignore
         # Append epoch metrics
         metrics["loss"].append(epoch_loss)
-        # metrics["accuracy"].append(epoch_accuracy)
-        # metrics["hamming"].append(epoch_hamming)
-        # metrics["f1-score_macro"].append(epoch_f1_macro)
-        # metrics["f1-score_micro"].append(epoch_f1_micro)
-        # metrics["f1-score_weighted"].append(epoch_f1_weighted)
-        # metrics["f1-score_none"].append(epoch_f1_none)
-        # metrics["roc_auc_macro"].append(epoch_roc_auc_macro)
-        # metrics["roc_auc_micro"].append(epoch_roc_auc_micro)
-        # metrics["roc_auc_weighted"].append(epoch_roc_auc_weighted)
-        # metrics["roc_auc_none"].append(epoch_roc_auc_none)
         # Print epoch metrics
         if verbose:
             print(f"Epoch {epoch + 1}/{num_epochs}")
-            print(
-                f"Training Loss: "
-                f"{epoch_loss:.4f} "
-                # f"Accuracy: {epoch_accuracy:.4f} "
-                # f"Hamming: {epoch_hamming:.4f} "
-                # f"\n"
-                # f"F1 (macro): {epoch_f1_macro} "
-                # f"F1 (micro): {epoch_f1_micro} "
-                # f"F1 (weighted): {epoch_f1_weighted} "
-                # f"F1 (none): {epoch_f1_none} "
-                # f"\n"
-                # f"ROC AUC (macro): {epoch_roc_auc_macro:.4f} "
-                # f"ROC AUC (micro): {epoch_roc_auc_micro:.4f} "
-                # f"ROC AUC (weighted): {epoch_roc_auc_weighted:.4f} "
-                # f"ROC AUC (none): {epoch_roc_auc_none} "
-            )
+            print(f"Training Loss: " f"{epoch_loss:.4f} ")
+        # free GPU memory
+        torch.cuda.empty_cache()
+        # free memory
+        gc.collect()
     return metrics
 
 
@@ -240,6 +184,54 @@ def test(
         y_true=result_labels.cpu().numpy().astype(int),
         y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
     )
+    epoch_precision_macro = sklearn.metrics.precision_score(
+        y_true=result_labels.cpu().numpy().astype(int),
+        y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        average="macro",
+        zero_division="warn",
+    )
+    epoch_precision_micro = sklearn.metrics.precision_score(
+        y_true=result_labels.cpu().numpy().astype(int),
+        y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        average="micro",
+        zero_division="warn",
+    )
+    epoch_precision_weighted = sklearn.metrics.precision_score(
+        y_true=result_labels.cpu().numpy().astype(int),
+        y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        average="weighted",
+        zero_division="warn",
+    )
+    epoch_precision_none = sklearn.metrics.precision_score(
+        y_true=result_labels.cpu().numpy().astype(int),
+        y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        average=None,
+        zero_division="warn",
+    )
+    epoch_recall_macro = sklearn.metrics.recall_score(
+        y_true=result_labels.cpu().numpy().astype(int),
+        y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        average="macro",
+        zero_division="warn",
+    )
+    epoch_recall_micro = sklearn.metrics.recall_score(
+        y_true=result_labels.cpu().numpy().astype(int),
+        y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        average="micro",
+        zero_division="warn",
+    )
+    epoch_recall_weighted = sklearn.metrics.recall_score(
+        y_true=result_labels.cpu().numpy().astype(int),
+        y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        average="weighted",
+        zero_division="warn",
+    )
+    epoch_recall_none = sklearn.metrics.recall_score(
+        y_true=result_labels.cpu().numpy().astype(int),
+        y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
+        average=None,
+        zero_division="warn",
+    )
     epoch_f1_macro = sklearn.metrics.f1_score(
         y_true=result_labels.cpu().numpy().astype(int),
         y_pred=(result_preds.cpu().numpy() >= config.PRED_THRESHOLD).astype(int),
@@ -295,6 +287,16 @@ def test(
             f"Accuracy: {epoch_accuracy:.4f} "
             f"Hamming: {epoch_hamming:.4f} "
             f"\n"
+            f"Precision (macro): {epoch_precision_macro} "
+            f"Precision (micro): {epoch_precision_micro} "
+            f"Precision (weighted): {epoch_precision_weighted} "
+            f"Precision (none): {epoch_precision_none} "
+            f"\n"
+            f"Recall (macro): {epoch_recall_macro} "
+            f"Recall (micro): {epoch_recall_micro} "
+            f"Recall (weighted): {epoch_recall_weighted} "
+            f"Recall (none): {epoch_recall_none} "
+            f"\n"
             f"F1 (macro): {epoch_f1_macro} "
             f"F1 (micro): {epoch_f1_micro} "
             f"F1 (weighted): {epoch_f1_weighted} "
@@ -310,6 +312,14 @@ def test(
         "loss": epoch_loss,
         "accuracy": epoch_accuracy,
         "hamming_loss": epoch_hamming,
+        "precision_macro": epoch_precision_macro,
+        "precision_micro": epoch_precision_micro,
+        "precision_weighted": epoch_precision_weighted,
+        "precision_none": epoch_precision_none,
+        "recall_macro": epoch_recall_macro,
+        "recall_micro": epoch_recall_micro,
+        "recall_weighted": epoch_recall_weighted,
+        "recall_none": epoch_recall_none,
         "f1-score_macro": epoch_f1_macro,
         "f1-score_micro": epoch_f1_micro,
         "f1-score_weighted": epoch_f1_weighted,
@@ -327,7 +337,7 @@ def validate(
     criterion: torch.nn.Module,
     device: torch.device,
     verbose: bool = True,
-):
+) -> tuple[float, float, float]:
     """Validate a PyTorch model.
 
     Args:
