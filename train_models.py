@@ -106,7 +106,9 @@ for learning_rate in models.LEARNING_RATES:
         with open(f"models/mvitv2_{learning_rate}.pt", "a", encoding="utf-8") as f:
             f.close()
     except EOFError:
-        continue
+        # If the file is empty, then it is not a valid state dict
+        if config.SKIP_TRAINED_MODELS:
+            continue
     print(
         f"{datetime.datetime.now()}: "
         f"Training mvitv2 model w/ {learning_rate} learning rate"
@@ -118,7 +120,6 @@ for learning_rate in models.LEARNING_RATES:
         loss_fn=torch.nn.MSELoss(),
         optimizer=torch.optim.Adam(model.parameters(), lr=learning_rate),
         scheduler=None,
-        auto_augment=torchvision.transforms.v2.AutoAugment(),
         epochs=10000,
         patience=10,
         device=device,

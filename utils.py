@@ -30,8 +30,6 @@ def train(
     scheduler: torch.optim.lr_scheduler.LRScheduler
     | torch.optim.lr_scheduler.ReduceLROnPlateau
     | None = None,
-    auto_augment: torchvision.transforms.AutoAugment
-    | None = torchvision.transforms.AutoAugment(),
     epochs: int = 10000,
     patience: int = 5,
     device: torch.device = torch.device("cpu"),
@@ -67,6 +65,10 @@ def train(
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", patience=patience // 2, verbose=verbose
         )
+    # initialize auto_augment
+    auto_augment: torchvision.transforms.AutoAugment | None = (
+        torchvision.transforms.AutoAugment()
+    )
     if verbose:
         # print training info
         print(f"Start time: {datetime.datetime.now()}")
@@ -77,7 +79,6 @@ def train(
         print(f"Optimizer: {optimizer.__class__.__name__}")
         if scheduler is not None:
             print(f"Learning rate scheduler: {scheduler.__class__.__name__}")
-        print(f"Autoaugment: {auto_augment.__class__.__name__}")
         print(f"Patience: {patience}")
         print(f"Epochs: {epochs}")
         print(f"Device: {device}")
@@ -125,20 +126,42 @@ def train(
                 # remove stride frames from inputs
                 inputs = inputs[:, config.STRIDE :, :, :].float()
 
-                # Autoaugment
+                # Autoaugment and send to device
+                inputs_augmented: list[torch.Tensor] | torch.Tensor = [
+                    inputs_first.to(torch.uint8)
+                ]
                 if auto_augment is not None:
-                    inputs_first = auto_augment(inputs_first)
+                    # squeeze batch dimension
+                    inputs_first = inputs_first.squeeze(0)
+                    # invert dimensions to use torchvision transforms
+                    # permute dimensions
+                    inputs_first = inputs_first.permute(1, 0, 2, 3)
+                    # create N augmented sequences and stack them
+                    for _ in range(config.AUTOAUGMENT_N):
+                        inputs_augmented.append(
+                            auto_augment(inputs_first.to(torch.uint8))
+                            .permute(1, 0, 2, 3)
+                            .unsqueeze(0)
+                        )
+                    # add batch dimension
+                    inputs_augmented = torch.cat(inputs_augmented)
+                    # permute back
+                    # inputs_augmented = inputs_augmented.permute(0, 2, 1, 3, 4)
+                    # send to device
+                    inputs_augmented = inputs_augmented.float().to(device)
+                else:
+                    # send to device
+                    inputs_augmented = inputs_first.float().to(device)
 
                 # Increment number of samples
-                idx += inputs_first.shape[0]
+                idx += inputs_augmented.shape[0]
 
-                # send input and labels to device
-                inputs_first = inputs_first.float().to(device)
+                # send labels to device
                 labels = labels.float().to(device)
                 # zero the parameter gradients
                 optimizer.zero_grad()
                 # forward pass
-                outputs = model(inputs_first)
+                outputs = model(inputs_augmented)
 
                 # if verbose:  # For debugging
                 #     print("inputs.shape:", inputs.shape)
@@ -170,12 +193,6 @@ def train(
                 torch.cuda.empty_cache()
                 del inputs_first
                 gc.collect()
-        # Scheduler step
-        if scheduler is not None:
-            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                scheduler.step(epoch_training_loss / idx)
-            else:
-                scheduler.step()
         # Append average epoch loss to metrics
         metrics["train_loss"].append(epoch_training_loss / idx)
         # free GPU and RAM memory
@@ -271,6 +288,12 @@ def train(
                         f"Val loss did not improve for {patience} epochs."
                     )
                 break
+        # Scheduler step
+        if scheduler is not None:
+            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler.step(epoch_val_loss / idx)
+            else:
+                scheduler.step()
 
     # Print final metrics
     if verbose:
