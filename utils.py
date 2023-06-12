@@ -30,8 +30,8 @@ def train(
     scheduler: torch.optim.lr_scheduler.LRScheduler
     | torch.optim.lr_scheduler.ReduceLROnPlateau
     | None = None,
-    auto_augment: torchvision.transforms.v2.AutoAugment
-    | None = torchvision.transforms.v2.AutoAugment(),
+    auto_augment: torchvision.transforms.AutoAugment
+    | None = torchvision.transforms.AutoAugment(),
     epochs: int = 10000,
     patience: int = 5,
     device: torch.device = torch.device("cpu"),
