@@ -250,7 +250,7 @@ def train(
             best_val_loss = metrics["val_loss"][-1]
             if save_best == "memory":
                 # copy model
-                best_model_wts = copy.deepcopy(model.state_dict()).to("cpu")
+                best_model_wts = copy.deepcopy(model.state_dict())
             elif save_best == "disk":
                 # save model
                 torch.save(
