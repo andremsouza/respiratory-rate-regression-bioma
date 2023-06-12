@@ -14,13 +14,12 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import DataLoader
+import torchvision
 
 import data
 import models
 import config
 import utils
-
-SKIP_TRAINED_MODELS = True
 
 # %% [markdown]
 # # Data
@@ -67,7 +66,21 @@ train_loader = DataLoader(
     ),
     batch_size=1,
     shuffle=True,
-    num_workers=24,
+    num_workers=16,
+)
+test_loader = DataLoader(
+    data.VideoDataset(
+        config.TEST_ANNOTATION_FILE,
+        config.DATA_DIRECTORY,
+        transform=transforms,
+        # transforms(
+        # data.expand_video_into_batches(x, batch_size=16, stride=8, device=device)
+        # ),
+        target_transform=lambda x: data.expand_label(x, 1, device=device),
+    ),
+    batch_size=1,
+    shuffle=True,
+    num_workers=16,
 )
 
 # %%
@@ -79,14 +92,19 @@ for learning_rate in models.LEARNING_RATES:
     # Load state dict if it exists
     try:
         model.load_state_dict(torch.load(f"models/mvitv2_{learning_rate}.pt"))
-        if SKIP_TRAINED_MODELS:
+        if config.SKIP_TRAINED_MODELS:
             continue
+        print(
+            f"{datetime.datetime.now()}: "
+            f"Loaded mvitv2 model w/ {learning_rate} learning rate"
+        )
     except FileNotFoundError:
         # Touch file so it exists
         # This crudely enables training multiple models in parallel
         # However, if there is an interruption during training, the file will not be deleted
         # In this case, the file will need to be deleted manually
-        open(f"models/mvitv2_{learning_rate}.pt", "a", encoding="utf-8").close()
+        with open(f"models/mvitv2_{learning_rate}.pt", "a", encoding="utf-8") as f:
+            f.close()
     except EOFError:
         continue
     print(
@@ -94,13 +112,17 @@ for learning_rate in models.LEARNING_RATES:
         f"Training mvitv2 model w/ {learning_rate} learning rate"
     )
     utils.train(
-        model,
-        train_loader,
-        criterion=torch.nn.MSELoss(),
+        model=model,
+        train_loader=train_loader,
+        test_loader=test_loader,
+        loss_fn=torch.nn.MSELoss(),
         optimizer=torch.optim.Adam(model.parameters(), lr=learning_rate),
+        scheduler=None,
+        auto_augment=torchvision.transforms.v2.AutoAugment(),
+        epochs=10000,
+        patience=10,
         device=device,
-        num_epochs=10,
-        n_classes=1,
+        save_best="disk",
         verbose=True,
     )
     # Save model state dict
