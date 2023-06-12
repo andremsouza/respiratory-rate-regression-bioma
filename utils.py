@@ -9,7 +9,6 @@ import datetime
 import gc
 import warnings
 
-import sklearn.metrics
 import torch
 import torchvision
 
