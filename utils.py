@@ -156,6 +156,8 @@ def train(
                 # Increment number of samples
                 idx += inputs_augmented.shape[0]
 
+                # expand labels to comply with inputs_augmented shape
+                labels = labels.expand(inputs_augmented.shape[0], -1)
                 # send labels to device
                 labels = labels.float().to(device)
                 # zero the parameter gradients
