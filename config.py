@@ -22,11 +22,13 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 MODELS_DIRECTORY = "./models/"
 
+NUM_WORKERS = 1
 BATCH_SIZE = 16
 STRIDE = 8
 AUTOAUGMENT = True
-AUTOAUGMENT_N = 16
+AUTOAUGMENT_N = 1
 PRED_THRESHOLD = 0.5
+WEIGHT_DECAY = 0.05
 
 SKIP_TRAINED_MODELS = False
 
