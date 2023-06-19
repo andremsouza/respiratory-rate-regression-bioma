@@ -51,7 +51,7 @@ class MViTV2Regression(nn.Module):
         """
         super().__init__(*args, **kwargs)
         self.model = mvit_v2_s(weights=weights)
-        self.weights = weights
+        # self.weights = weights
         # Change the number of output features to 1
         self.model.head = torch.nn.Sequential(
             torch.nn.Dropout(p=0.5, inplace=True),
@@ -96,7 +96,7 @@ class MViTV2BinaryClassification(nn.Module):
         """
         super().__init__(*args, **kwargs)
         self.model = mvit_v2_s(weights=weights)
-        self.weights = weights
+        # self.weights = weights
         # Change the number of output features to 1
         self.model.head = torch.nn.Sequential(
             torch.nn.Dropout(p=0.5, inplace=True),
