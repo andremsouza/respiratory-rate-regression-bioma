@@ -130,7 +130,7 @@ def expand_video_into_batches(
     """Expand a video with a single label into batches of frames.
 
     Args:
-        video: A tensor of shape (frames, channels, height, width).
+        video: A tensor of shape (channels, frames, height, width).
         batch_size: The number of frames in each batch.
         stride: The number of frames to skip between batches.
         device: The device to send the batches to.
