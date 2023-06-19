@@ -67,7 +67,7 @@ train_loader = DataLoader(
     ),
     batch_size=1,
     shuffle=True,
-    num_workers=16,
+    num_workers=config.NUM_WORKERS,
 )
 test_loader = DataLoader(
     data.VideoDataset(
@@ -81,7 +81,7 @@ test_loader = DataLoader(
     ),
     batch_size=1,
     shuffle=True,
-    num_workers=16,
+    num_workers=config.NUM_WORKERS,
 )
 
 # %%
