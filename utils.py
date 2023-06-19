@@ -60,6 +60,13 @@ def train(
         tuple[dict | None, dict]: Best model weights (if saved in memory),
             training metrics history.
     """
+    # Get optimizer learning rate
+    initial_lr = optimizer.param_groups[0]["lr"]
+    # If save_best is "disk", set file name
+    if save_best == "disk":
+        filepath: str = (
+            f"{config.MODELS_DIRECTORY}{model.__class__.__name__}_{initial_lr}_best.pt"
+        )
     # initialize scheduler
     if scheduler is None:
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -154,7 +161,8 @@ def train(
                     inputs_augmented = inputs_first.float().to(device)
 
                 # Increment number of samples
-                idx += inputs_augmented.shape[0]
+                # idx += inputs_augmented.shape[0]
+                idx += 1
 
                 # expand labels to comply with inputs_augmented shape
                 labels = labels.expand(inputs_augmented.shape[0], -1)
@@ -271,10 +279,7 @@ def train(
                 best_model_wts = copy.deepcopy(model.state_dict())
             elif save_best == "disk":
                 # save model
-                torch.save(
-                    model.state_dict(),
-                    f"{config.MODELS_DIRECTORY}{model.__class__.__name__}_best.pt",
-                )
+                torch.save(model.state_dict(), filepath)
             else:
                 # warn and do nothing
                 warnings.warn(
