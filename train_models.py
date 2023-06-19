@@ -89,7 +89,9 @@ test_loader = DataLoader(
 # Train models
 for learning_rate in models.LEARNING_RATES:
     # Create model and load state dict if it exists
-    model = models.MViTV2Regression(weights=models.MViT_V2_S_Weights.DEFAULT).to(device)
+    model = models.MViTV2Regression(  # pylint: disable=invalid-name
+        weights=models.MViT_V2_S_Weights.DEFAULT,
+    ).to(device)
     # Load state dict if it exists
     try:
         model.load_state_dict(torch.load(f"models/mvitv2_{learning_rate}.pt"))
