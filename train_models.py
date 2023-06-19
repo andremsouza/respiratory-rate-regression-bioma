@@ -141,6 +141,12 @@ for learning_rate in models.LEARNING_RATES:
         save_best="disk",
         verbose=True,
     )
+    # Load best model weights
+    model.load_state_dict(
+        torch.load(
+            f"{config.MODELS_DIRECTORY}{model.__class__.__name__}_{learning_rate}_best.pt"
+        )
+    )
     # Save model state dict
     print(
         f"{datetime.datetime.now()}: "
