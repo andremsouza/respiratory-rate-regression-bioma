@@ -116,15 +116,27 @@ for learning_rate in models.LEARNING_RATES:
         f"{datetime.datetime.now()}: "
         f"Training mvitv2 model w/ {learning_rate} learning rate"
     )
-    utils.train(
+    # optimizer = torch.optim.Adam(
+    #     model.parameters(), lr=learning_rate, weight_decay=config.WEIGHT_DECAY
+    # )
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=learning_rate, weight_decay=config.WEIGHT_DECAY
+    )
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    #     optimizer=optimizer, mode="min", factor=0.2, patience=10, verbose=True
+    # )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer=optimizer, T_max=200, eta_min=0, last_epoch=-1, verbose=True
+    )
+    best_model_weights, _ = utils.train(
         model=model,
         train_loader=train_loader,
         test_loader=test_loader,
         loss_fn=torch.nn.MSELoss(),
-        optimizer=torch.optim.Adam(model.parameters(), lr=learning_rate),
-        scheduler=None,
-        epochs=10000,
-        patience=10,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        epochs=200,
+        patience=20,
         device=device,
         save_best="disk",
         verbose=True,
