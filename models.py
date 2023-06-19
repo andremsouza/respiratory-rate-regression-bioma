@@ -12,7 +12,13 @@ from torchvision.models.video import mvit_v2_s, MViT_V2_S_Weights
 # # Constants
 
 # %%
-LEARNING_RATES = [1e-3, 1e-4, 1e-5, 1e-6]
+LEARNING_RATES = [
+    1.6e-3,
+    1e-3,
+    1e-4,
+    1e-5,
+    1e-6,
+]
 
 # %% [markdown]
 # # Model
