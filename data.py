@@ -34,13 +34,14 @@ class VideoDataset(Dataset):
     """Dataset for video data."""
 
     def __init__(
-        self, annotations_file, data_dir, transform=None, target_transform=None
+        self, annotations_file, data_dir, fps=7.5, transform=None, target_transform=None
     ):
         """Initialize the dataset.
 
         Args:
             annotations_file (str): Path to the annotation file.
             data_dir (str): Path to the data directory.
+            fps (float, optional): Frames per second. Defaults to 7.5.
             transform (callable, optional): Optional transform to be applied on a sample.
             target_transform (callable, optional): Optional transform to be applied on the
                 target of a sample.
@@ -83,6 +84,7 @@ class VideoDataset(Dataset):
             for file in os.listdir(data_dir)
             if file.endswith(".mp4") and file.split(".")[0] in self.annotations.index
         ]
+        self.fps = fps
         self.transform = transform
         self.target_transform = target_transform
 
@@ -101,11 +103,13 @@ class VideoDataset(Dataset):
         """
         # file name in index
         video_name = self.annotations.index[idx] + ".mp4"
-        video, _, _ = torchvision.io.read_video(
+        video, _, info = torchvision.io.read_video(
             os.path.join(self.data_dir, video_name),
             pts_unit="sec",
             output_format="TCHW",
         )
+        # Resample video fps
+        video = resample_video(video=video, fps=info["video_fps"], target_fps=self.fps)
         if self.transform:
             video = self.transform(video)
         label = self.annotations.loc[:, config.LABEL_COLUMN].iloc[idx]
@@ -176,6 +180,43 @@ def expand_label(
     # send the tensor to the device
     # label_tensor = label_tensor.to(device)
     return label_tensor
+
+
+def resample_video(
+    video: torch.Tensor,
+    fps: float,
+    target_fps: float,
+    device: str | torch.device = DEVICE,
+) -> torch.Tensor:
+    """Resample a video to a target fps.
+
+    Args:
+        video: A tensor of shape (T, C, H, W).
+        fps: The fps of the video.
+        target_fps: The target fps.
+        device: The device to send the batches to.
+
+    Returns:
+        A tensor of shape (T', C, H, W).
+    """
+    # calculate the number of frames in the video
+    number_of_frames = video.shape[0]
+    # calculate the duration of the video
+    duration = number_of_frames / fps
+    # calculate the number of frames in the resampled video
+    number_of_frames_resampled = int(duration * target_fps)
+    # manually resample the video
+    # create a list of frames to sample
+    frames_to_sample = torch.linspace(
+        0, number_of_frames - 1, number_of_frames_resampled
+    )
+    # round the frames to sample
+    frames_to_sample = torch.round(frames_to_sample).long()
+    # sample the frames
+    video_resampled = video[frames_to_sample, :, :, :]
+    # send the tensor to the device
+    # video_resampled = video_resampled.to(device)
+    return video_resampled
 
 
 # %% [markdown]

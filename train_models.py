@@ -59,6 +59,7 @@ train_loader = DataLoader(
     data.VideoDataset(
         config.TRAIN_ANNOTATION_FILE,
         config.DATA_DIRECTORY,
+        fps=7.5,
         transform=transforms,
         # transforms(
         # data.expand_video_into_batches(x, batch_size=16, stride=8, device=device)
@@ -73,6 +74,7 @@ test_loader = DataLoader(
     data.VideoDataset(
         config.TEST_ANNOTATION_FILE,
         config.DATA_DIRECTORY,
+        fps=7.5,
         transform=transforms,
         # transforms(
         # data.expand_video_into_batches(x, batch_size=16, stride=8, device=device)
@@ -125,8 +127,8 @@ for learning_rate in models.LEARNING_RATES:
     # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
     #     optimizer=optimizer, mode="min", factor=0.2, patience=10, verbose=True
     # )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer=optimizer, T_max=200, eta_min=0, last_epoch=-1, verbose=True
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer=optimizer, T_0=10, T_mult=1, eta_min=1e-6, verbose=True
     )
     best_model_weights, _ = utils.train(
         model=model,

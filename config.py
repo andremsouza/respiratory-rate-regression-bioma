@@ -18,9 +18,11 @@ TEST_ANNOTATION_FILE = "./test_annotation.csv"
 ANNOTATION_SECONDS = 30
 
 DATA_DIRECTORY = "./videos/"
+# DATA_DIRECTORY = "./videos/masked/"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 MODELS_DIRECTORY = "./models/"
+# MODELS_DIRECTORY = "./models/masked/"
 
 NUM_WORKERS = 1
 BATCH_SIZE = 16
