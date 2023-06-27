@@ -474,6 +474,42 @@ def segment(
     return masked_video.detach().to(device)
 
 
+def bounding_box_transform(
+    video: torch.Tensor,
+    bboxes: list[dict],
+    interpolation: str = "linear",
+    device: torch.device = DEVICE,
+) -> torch.Tensor:
+    """Transform the video to a bounding box.
+
+    Given a list of bounding boxes, transform the video to the bounding box.
+    Each bounding box is a dictionary with the following keys:
+        - "x": The x coordinate of the top left corner of the bounding box.
+        - "y": The y coordinate of the top left corner of the bounding box.
+        - "width": The width of the bounding box.
+        - "height": The height of the bounding box.
+        - "time": The time of the bounding box in seconds.
+        - "frame": The frame of the bounding box in the video.
+        - "rotation": The rotation of the bounding box in degrees.
+
+    When multiple bounding boxes are provided, we interpolate between them. For example,
+    if we have bounding boxes at 0.0s and 1.0s, we will transform the video to the first
+    bounding box at 0.0s, the second bounding box at 1.0s, and the intermediate bounding
+    for each frame in between.
+
+    Args:
+        video (torch.Tensor): The video to transform.
+        bboxes (list[dict]): The list of bounding boxes.
+        interpolation (int, optional): The interpolation method to use. Defaults to
+            "linear".
+
+    Returns:
+        torch.Tensor: The transformed video.
+    """
+    # TODO: implement
+    raise NotImplementedError
+
+
 # %%
 if __name__ == "__main__":
     # For each video in data directory, load, segment, and save
