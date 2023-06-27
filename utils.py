@@ -197,7 +197,9 @@ def train(
                         f"Epoch {epoch+1:5d} | "
                         f"Batch {i+1:5d} | "
                         f"Avg batch loss {epoch_training_loss / (i+1):.4f} | "
-                        f"Avg sample loss {epoch_training_loss / idx:.4f}"
+                        f"Avg sample loss {epoch_training_loss / idx:.4f} | "
+                        f"Sample label {labels} | "
+                        f"Sample prediction {outputs}"
                     )
                 # free GPU and RAM memory
                 torch.cuda.empty_cache()
