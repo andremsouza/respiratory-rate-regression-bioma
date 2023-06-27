@@ -196,10 +196,14 @@ def train(
                         f"Time {datetime.datetime.now()} | "
                         f"Epoch {epoch+1:5d} | "
                         f"Batch {i+1:5d} | "
-                        f"Avg batch loss {epoch_training_loss / (i+1):.4f} | "
-                        f"Avg sample loss {epoch_training_loss / idx:.4f} | "
+                        f"Avg batch loss {epoch_training_loss / (i+1):.4f} "
+                        f"({torch.tensor(epoch_training_loss / (i+1)).sqrt():.4f}) | "
+                        f"Avg sample loss {epoch_training_loss / idx:.4f} "
+                        f"({torch.tensor(epoch_training_loss / idx).sqrt():.4f}) | "
                         f"Sample label {labels} | "
-                        f"Sample prediction {outputs}"
+                        f"Sample prediction {outputs} | "
+                        f"Sample loss {loss.item():.4f} "
+                        f"({torch.tensor(loss.item()).sqrt():.4f})"
                     )
                 # free GPU and RAM memory
                 torch.cuda.empty_cache()
@@ -252,7 +256,10 @@ def train(
                             f"Epoch {epoch+1:5d} | "
                             f"Batch {i+1:5d} | "
                             f"Avg batch loss {epoch_val_loss / (i+1):.4f} | "
-                            f"Avg sample loss {epoch_val_loss / idx:.4f}"
+                            f"Avg sample loss {epoch_val_loss / idx:.4f} |"
+                            f"Sample label {labels} | "
+                            f"Sample prediction {outputs} | "
+                            f"Sample loss {loss.item():.4f}"
                         )
                     # free GPU and RAM memory
                     torch.cuda.empty_cache()
@@ -265,7 +272,10 @@ def train(
             print(
                 f"Epoch {epoch + 1}/{epochs} | "
                 f"Train loss: {metrics['train_loss'][-1]:.4f} | "
-                f"Val loss: {metrics['val_loss'][-1]:.4f}"
+                f"Val loss: {metrics['val_loss'][-1]:.4f} | "
+                f"Sample label {labels} | "
+                f"Sample prediction {outputs} | "
+                f"Sample loss {loss.item():.4f}"
             )
         # free GPU memory
         torch.cuda.empty_cache()
@@ -276,6 +286,10 @@ def train(
         if metrics["val_loss"][-1] < best_val_loss:
             patience_counter = 0
             best_val_loss = metrics["val_loss"][-1]
+            print(
+                f"Val loss improved to {best_val_loss:.4f} "
+                f"({torch.tensor(best_val_loss).sqrt():.4f})"
+            )
             if save_best == "memory":
                 # copy model
                 best_model_wts = copy.deepcopy(model.state_dict())
