@@ -13,7 +13,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 import torchvision
-from torchvision.transforms import GaussianBlur, Grayscale, Resize
+from torchvision.transforms import GaussianBlur, Resize
 
 import config
 
@@ -143,7 +143,7 @@ def expand_video_into_batches(
         A tensor of shape (batches, batch_size, channels, height, width).
     """
     # create a list of batches
-    batches = []
+    batches: list[torch.Tensor] | torch.Tensor = []
     # iterate over the video in batches of size `batch_size`
     for i in range(0, video.shape[1], stride):
         # check if there are enough frames left to fill a batch
@@ -151,19 +151,19 @@ def expand_video_into_batches(
             # if not, skip
             break
         # add the next batch of frames to the list
-        batches.append(video[:, i : i + batch_size, :, :])
+        batches.append(video[:, i : i + batch_size, :, :])  # type: ignore
         # if only the first batch is needed, stop
         if first_only:
             break
     # stack the batches into a tensor
-    batches = torch.stack(batches)
+    batches = torch.stack(batches)  # type: ignore
     # send the tensor to the device
     # batches = batches.to(device)
     return batches
 
 
 def expand_label(
-    label: float, number_of_batches: int, device: torch.device = DEVICE
+    label: float, number_of_batches: int, device: str | torch.device = DEVICE
 ) -> torch.Tensor:
     """Expand a label into a tensor of shape (batches, 1).
 
@@ -478,7 +478,6 @@ def bounding_box_transform(
     video: torch.Tensor,
     bboxes: list[dict],
     interpolation: str = "linear",
-    device: torch.device = DEVICE,
 ) -> torch.Tensor:
     """Transform the video to a bounding box.
 
@@ -506,8 +505,218 @@ def bounding_box_transform(
     Returns:
         torch.Tensor: The transformed video.
     """
-    # TODO: implement
-    raise NotImplementedError
+    # interpolate bounding boxes for each frame
+    bboxes = interpolate_bboxes(bboxes, video.shape[0], interpolation=interpolation)
+    # transform video to bounding box
+    # each frame has a different bounding box
+    assert video.shape[0] == len(bboxes)
+    # create empty video
+    transformed_video = torch.zeros_like(video)
+    # for each frame
+    for frame, bbox in enumerate(bboxes):
+        # transform frame to bounding box
+        transformed_video[frame] = transform_to_bbox(
+            frame=video[frame],
+            x=bbox["x"],
+            y=bbox["y"],
+            width=bbox["width"],
+            height=bbox["height"],
+            rotation=bbox["rotation"],
+        )
+    return transformed_video
+
+
+def interpolate_bboxes(
+    bboxes: list[dict], num_frames: int, interpolation: str = "linear"
+) -> list[dict]:
+    """Interpolate bounding boxes.
+
+    Given a list of bounding boxes, interpolate between them. For example, if we have
+    bounding boxes at 0.0s and 1.0s, we will interpolate the bounding boxes for each
+    frame in between.
+
+    Given a list of bounding boxes, transform the video to the bounding box.
+    Each bounding box is a dictionary with the following keys:
+        - "x": The x coordinate of the top left corner of the bounding box.
+        - "y": The y coordinate of the top left corner of the bounding box.
+        - "width": The width of the bounding box.
+        - "height": The height of the bounding box.
+        - "time": The time of the bounding box in seconds.
+        - "frame": The frame of the bounding box in the video.
+        - "rotation": The rotation of the bounding box in degrees.
+
+    Args:
+        bboxes (list[dict]): The list of bounding boxes.
+        num_frames (int): The number of frames in the video.
+        interpolation (int, optional): The interpolation method to use. Defaults to
+            "linear".
+
+    Returns:
+        list[dict]: The interpolated bounding boxes.
+    """
+    # if no bounding boxes, return empty list
+    if len(bboxes) == 0:
+        return []
+    # if only one bounding box, return the same bounding box for each frame
+    if len(bboxes) == 1:
+        return [bboxes[0]] * num_frames
+    # if interpolation is linear, interpolate linearly
+    if interpolation == "linear":
+        # ensure bounding boxes are sorted by time
+        bboxes = sorted(bboxes, key=lambda x: x["time"])
+        # for each bbox pair, interpolate between them
+        # thus generating a bbox for each frame
+        interpolated_bboxes: list[dict] = []
+        for i in range(len(bboxes) - 1):
+            start_bbox: dict = bboxes[i]
+            end_bbox: dict = bboxes[i + 1]
+            # get the start and end times
+            start_time: float = start_bbox["time"]
+            end_time: float = end_bbox["time"]
+            # get the start and end frames
+            start_frame: int = start_bbox["frame"]
+            end_frame: int = end_bbox["frame"]
+            # get the start and end x coordinates
+            start_x: float = start_bbox["x"]
+            end_x: float = end_bbox["x"]
+            # get the start and end y coordinates
+            start_y: float = start_bbox["y"]
+            end_y: float = end_bbox["y"]
+            # get the start and end width
+            start_width: float = start_bbox["width"]
+            end_width: float = end_bbox["width"]
+            # get the start and end height
+            start_height: float = start_bbox["height"]
+            end_height: float = end_bbox["height"]
+            # get the start and end rotation
+            start_rotation: float = start_bbox["rotation"]
+            end_rotation: float = end_bbox["rotation"]
+
+            # interpolate between the start and end bounding boxes
+            # with numpy
+            # get the times for each frame
+            times: np.ndarray = np.linspace(
+                start_time, end_time, end_frame - start_frame
+            )
+            # get the x coordinates for each frame
+            xs: np.ndarray = np.linspace(start_x, end_x, end_frame - start_frame)
+            # get the y coordinates for each frame
+            ys: np.ndarray = np.linspace(start_y, end_y, end_frame - start_frame)
+            # get the widths for each frame
+            widths: np.ndarray = np.linspace(
+                start_width, end_width, end_frame - start_frame
+            )
+            # get the heights for each frame
+            heights: np.ndarray = np.linspace(
+                start_height, end_height, end_frame - start_frame
+            )
+            # get the rotations for each frame
+            rotations: np.ndarray = np.linspace(
+                start_rotation, end_rotation, end_frame - start_frame
+            )
+
+            # append the interpolated bounding boxes
+            interpolated_bboxes += [
+                {
+                    "x": x,
+                    "y": y,
+                    "time": time,
+                    "frame": frame,
+                    "width": width,
+                    "height": height,
+                    "rotation": rotation,
+                }
+                for x, y, width, height, time, frame, rotation in zip(
+                    xs,
+                    ys,
+                    widths,
+                    heights,
+                    times,
+                    range(start_frame, end_frame),
+                    rotations,
+                )
+            ]
+        # append the last bounding box to remaining frames, adjusting the frame number
+        interpolated_bboxes += [
+            {
+                "x": bboxes[-1]["x"],
+                "y": bboxes[-1]["y"],
+                "time": bboxes[-1]["time"],
+                "frame": bboxes[-1]["frame"] + i + 1,
+                "width": bboxes[-1]["width"],
+                "height": bboxes[-1]["height"],
+                "rotation": bboxes[-1]["rotation"],
+            }
+            for i in range(num_frames - bboxes[-1]["frame"])
+        ]
+        # Raise exception if the number of interpolated bounding boxes is not equal to
+        # the number of frames
+        assert len(interpolated_bboxes) == num_frames
+        # Raise exception if the interpolated bounding boxes are not sorted by frame
+        assert all(
+            interpolated_bboxes[i]["frame"] <= interpolated_bboxes[i + 1]["frame"]
+            for i in range(len(interpolated_bboxes) - 1)
+        )
+        # return the interpolated bounding boxes
+        return interpolated_bboxes
+    else:
+        raise NotImplementedError
+
+
+def transform_to_bbox(
+    frame: torch.Tensor,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    rotation: float,
+    interpolation: str = "bilinear",
+) -> torch.Tensor:
+    """Transforms a frame to a bounding box.
+
+    Args:
+        frame (torch.Tensor): The frame to transform.
+        x (float): The x coordinate of the bounding box.
+        y (float): The y coordinate of the bounding box.
+        width (float): The width of the bounding box.
+        height (float): The height of the bounding box.
+        rotation (float): The rotation of the bounding box in degrees.
+        interpolation (str, optional): The interpolation method to use. Defaults to
+            "bilinear".
+
+    Returns:
+        torch.Tensor: The transformed frame.
+    """
+    # get original frame size
+    original_height, original_width = frame.shape[-2:]
+    # rotate
+    frame = torchvision.transforms.functional.rotate(
+        frame,
+        angle=rotation,
+        interpolation={
+            "bilinear": torchvision.transforms.functional.InterpolationMode.BILINEAR,
+            "nearest": torchvision.transforms.functional.InterpolationMode.NEAREST,
+        }[interpolation],
+    )
+    # crop
+    frame = torchvision.transforms.functional.crop(
+        frame,
+        top=int(y),
+        left=int(x),
+        height=int(height),
+        width=int(width),
+    )
+    # resize
+    frame = torchvision.transforms.functional.resize(
+        frame,
+        size=(original_height, original_width),
+        interpolation={
+            "bilinear": torchvision.transforms.functional.InterpolationMode.BILINEAR,
+            "nearest": torchvision.transforms.functional.InterpolationMode.NEAREST,
+        }[interpolation],
+    )
+    # return the transformed frame
+    return frame
 
 
 # %%
