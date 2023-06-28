@@ -80,8 +80,8 @@ def train(
         # print training info
         print(f"Start time: {datetime.datetime.now()}")
         print(f"Training {model.__class__.__name__} on {device}.")
-        print(f"Training data: {len(train_loader.dataset)}")
-        print(f"Validation data: {len(test_loader.dataset)}")
+        print(f"Training data: {len(train_loader.dataset)}")  # type: ignore
+        print(f"Validation data: {len(test_loader.dataset)}")  # type: ignore
         print(f"Loss function: {loss_fn.__class__.__name__}")
         print(f"Optimizer: {optimizer.__class__.__name__}")
         if scheduler is not None:
@@ -145,13 +145,13 @@ def train(
                     inputs_first = inputs_first.permute(1, 0, 2, 3)
                     # create N augmented sequences and stack them
                     for _ in range(config.AUTOAUGMENT_N):
-                        inputs_augmented.append(
+                        inputs_augmented.append(  # type: ignore
                             auto_augment(inputs_first.to(torch.uint8))
                             .permute(1, 0, 2, 3)
                             .unsqueeze(0)
                         )
                     # add batch dimension
-                    inputs_augmented = torch.cat(inputs_augmented)
+                    inputs_augmented = torch.cat(inputs_augmented)  # type: ignore
                     # permute back
                     # inputs_augmented = inputs_augmented.permute(0, 2, 1, 3, 4)
                     # send to device
