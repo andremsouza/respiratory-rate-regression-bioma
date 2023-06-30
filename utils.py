@@ -176,15 +176,6 @@ def train(
                 # forward pass
                 outputs = model(inputs_augmented)
 
-                # if verbose:  # For debugging
-                #     print("inputs.shape:", inputs.shape)
-                #     print("inputs_first.shape:", inputs_first.shape)
-                #     print("outputs.shape:", outputs.shape)
-                #     print("labels.shape:", labels.shape)
-                #     print("outputs:", outputs)
-                #     print("labels:", labels)
-                #     print("loss:", loss)
-
                 # backward pass
                 loss = loss_fn(outputs, labels)
                 loss.backward()
