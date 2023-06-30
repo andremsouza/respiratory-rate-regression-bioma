@@ -96,7 +96,11 @@ for learning_rate in models.LEARNING_RATES:
     ).to(device)
     # Load state dict if it exists
     try:
-        model.load_state_dict(torch.load(f"models/mvitv2_{learning_rate}.pt"))
+        model.load_state_dict(
+            torch.load(
+                f"{config.MODELS_DIRECTORY}{model.__class__.__name__}_{learning_rate}_best.pt"
+            )
+        )
         if config.SKIP_TRAINED_MODELS:
             continue
         print(
@@ -108,7 +112,10 @@ for learning_rate in models.LEARNING_RATES:
         # This crudely enables training multiple models in parallel
         # However, if there is an interruption during training, the file will not be deleted
         # In this case, the file will need to be deleted manually
-        with open(f"models/mvitv2_{learning_rate}.pt", "a", encoding="utf-8") as f:
+        with open(
+            f"{config.MODELS_DIRECTORY}{model.__class__.__name__}_{learning_rate}_best.pt",
+            "rb",
+        ) as f:
             f.close()
     except EOFError:
         # If the file is empty, then it is not a valid state dict
