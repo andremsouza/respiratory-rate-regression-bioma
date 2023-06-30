@@ -95,9 +95,11 @@ def train(
     idx: int = 0
     metrics: dict = {
         "train_loss": [],
+        "train_loss_sqrt": [],
         "val_loss": [],
+        "val_loss_sqrt": [],
     }
-    best_val_loss: float = float("inf")
+    best_val_loss: float = float("-inf")
     best_model_wts: dict | None = None
     patience_counter: int = 0
     # loop over epochs
@@ -105,6 +107,7 @@ def train(
         if verbose:
             print(f"Epoch {epoch + 1}/{epochs} | Time: {datetime.datetime.now()}")
         epoch_training_loss: float = 0.0
+        epoch_training_loss_sqrt: float = 0.0
         idx = 0
         # Train
         # # initialize inputs and labels tensors
@@ -190,6 +193,7 @@ def train(
 
                 # Gather data and report
                 epoch_training_loss += loss.item()
+                epoch_training_loss_sqrt += float(torch.tensor(loss.item()).sqrt())
                 if verbose and idx % 1000 == 999:
                     print(
                         f"Training | "
@@ -197,9 +201,9 @@ def train(
                         f"Epoch {epoch+1:5d} | "
                         f"Batch {i+1:5d} | "
                         f"Avg batch loss {epoch_training_loss / (i+1):.4f} "
-                        f"({torch.tensor(epoch_training_loss / (i+1)).sqrt():.4f}) | "
+                        f"({epoch_training_loss_sqrt / (i+1):.4f}) | "
                         f"Avg sample loss {epoch_training_loss / idx:.4f} "
-                        f"({torch.tensor(epoch_training_loss / idx).sqrt():.4f}) | "
+                        f"({epoch_training_loss_sqrt / idx:.4f}) | "
                         f"Sample label {labels} | "
                         f"Sample prediction {outputs} | "
                         f"Sample loss {loss.item():.4f} "
@@ -211,11 +215,14 @@ def train(
                 gc.collect()
         # Append average epoch loss to metrics
         metrics["train_loss"].append(epoch_training_loss / idx)
+        metrics["train_loss_sqrt"].append(epoch_training_loss_sqrt / idx)
         # free GPU and RAM memory
         torch.cuda.empty_cache()
         gc.collect()
         # Evaluate
+        # TODO: Review validation code (output always the same)
         epoch_val_loss: float = 0.0
+        epoch_val_loss_sqrt: float = 0.0
         idx = 0
         model.eval()  # set model to evaluation mode
         with torch.no_grad():
@@ -249,6 +256,7 @@ def train(
                     loss = loss_fn(outputs, labels)
                     # Gather data and report
                     epoch_val_loss += loss.item()
+                    epoch_val_loss_sqrt += float(torch.tensor(loss.item()).sqrt())
                     if verbose and idx % 1000 == 999:
                         print(
                             f"Validation | "
@@ -256,10 +264,13 @@ def train(
                             f"Epoch {epoch+1:5d} | "
                             f"Batch {i+1:5d} | "
                             f"Avg batch loss {epoch_val_loss / (i+1):.4f} | "
+                            f"({epoch_val_loss_sqrt / (i+1):.4f}) | "
                             f"Avg sample loss {epoch_val_loss / idx:.4f} |"
+                            f"({epoch_val_loss_sqrt / idx:.4f}) | "
                             f"Sample label {labels} | "
                             f"Sample prediction {outputs} | "
-                            f"Sample loss {loss.item():.4f}"
+                            f"Sample loss {loss.item():.4f} "
+                            f"({torch.tensor(loss.item()).sqrt():.4f})"
                         )
                     # free GPU and RAM memory
                     torch.cuda.empty_cache()
@@ -267,15 +278,19 @@ def train(
                     gc.collect()
         # Append average epoch loss to metrics
         metrics["val_loss"].append(epoch_val_loss / idx)
+        metrics["val_loss_sqrt"].append(epoch_val_loss_sqrt / idx)
         # Print epoch metrics
         if verbose:
             print(
                 f"Epoch {epoch + 1}/{epochs} | "
-                f"Train loss: {metrics['train_loss'][-1]:.4f} | "
+                f"Train loss: {metrics['train_loss'][-1]:.4f} "
+                f"({metrics['train_loss_sqrt'][-1]:.4f}) | "
                 f"Val loss: {metrics['val_loss'][-1]:.4f} | "
+                f"({metrics['val_loss_sqrt'][-1]:.4f})"
                 f"Sample label {labels} | "
                 f"Sample prediction {outputs} | "
                 f"Sample loss {loss.item():.4f}"
+                f"({torch.tensor(loss.item()).sqrt():.4f})"
             )
         # free GPU memory
         torch.cuda.empty_cache()
