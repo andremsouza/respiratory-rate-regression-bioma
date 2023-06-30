@@ -163,7 +163,7 @@ for learning_rate in models.LEARNING_RATES:
     )
     torch.save(
         model.state_dict(),
-        f"models/mvitv2_{learning_rate}.pt",
+        f"{config.MODELS_DIRECTORY}{model.__class__.__name__}_{learning_rate}_best.pt",
     )
 
 # %%
