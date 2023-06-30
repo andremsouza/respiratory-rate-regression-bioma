@@ -99,7 +99,7 @@ def train(
         "val_loss": [],
         "val_loss_sqrt": [],
     }
-    best_val_loss: float = float("-inf")
+    best_val_loss: float = float("inf")
     best_model_wts: dict | None = None
     patience_counter: int = 0
     # loop over epochs
@@ -215,8 +215,8 @@ def train(
         epoch_val_loss: float = 0.0
         epoch_val_loss_sqrt: float = 0.0
         idx = 0
-        model.eval()  # set model to evaluation mode
         with torch.no_grad():
+            model.eval()  # set model to evaluation mode
             for i, (inputs, labels) in enumerate(test_loader):
                 # free GPU and RAM memory
                 torch.cuda.empty_cache()
