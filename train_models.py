@@ -114,7 +114,7 @@ for learning_rate in models.LEARNING_RATES:
         # In this case, the file will need to be deleted manually
         with open(
             f"{config.MODELS_DIRECTORY}{model.__class__.__name__}_{learning_rate}_best.pt",
-            "rb",
+            "wb",
         ) as f:
             f.close()
     except EOFError:
