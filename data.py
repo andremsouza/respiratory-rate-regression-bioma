@@ -46,6 +46,8 @@ class VideoDataset(Dataset):
             target_transform (callable, optional): Optional transform to be applied on the
                 target of a sample.
         """
+        self.annotations_file = annotations_file
+        self.label_column = config.LABEL_COLUMN
         if isinstance(annotations_file, str):
             # if csv file, load it
             if annotations_file.endswith(".csv"):
@@ -55,35 +57,81 @@ class VideoDataset(Dataset):
                 self.annotations = pd.read_excel(
                     annotations_file, header=0, index_col=0
                 )
+            # if json file, load it and preprocess (Label Studio)
+            elif annotations_file.endswith(".json"):
+                self.annotations = pd.read_json(annotations_file)
+                self.annotations = pd.concat(
+                    [
+                        self.annotations,
+                        pd.json_normalize(self.annotations["annotations"])
+                        .set_index(self.annotations.index)
+                        .add_prefix("annotations."),
+                    ],
+                    axis=1,
+                )
+                self.annotations = self.annotations.drop(columns=["annotations"])
+                self.annotations = self.annotations.melt(
+                    id_vars=[
+                        "id",
+                        "file_upload",
+                        "drafts",
+                        "predictions",
+                        "data",
+                        "meta",
+                        "created_at",
+                        "updated_at",
+                        "inner_id",
+                        "total_annotations",
+                        "cancelled_annotations",
+                        "total_predictions",
+                        "comment_count",
+                        "unresolved_comment_count",
+                        "last_comment_updated_at",
+                        "project",
+                        "updated_by",
+                        "comment_authors",
+                    ],
+                    value_vars=[
+                        col
+                        for col in self.annotations.columns
+                        if col.startswith("annotations.")
+                    ],
+                    var_name="annotation",
+                    value_name="value",
+                )
+                self.label_column = "value"
             else:
-                raise ValueError("Annotations file must be a csv or xlsx file.")
+                raise ValueError("Annotations file must be a csv, xlsx or json file.")
         elif isinstance(annotations_file, pd.DataFrame):
             # if dataframe, use it
             self.annotations = annotations_file
         else:
             raise ValueError(
-                "Annotations file must be a csv or xlsx file path or a dataframe."
+                "Annotations file must be a csv, xlsx or json file path or a dataframe."
             )
-        # convert label column to float
-        self.annotations.loc[:, config.LABEL_COLUMN] = self.annotations.loc[
-            :, config.LABEL_COLUMN
-        ].astype(float)
-        # Remove rows with missing values
-        self.annotations = self.annotations.loc[
-            (
-                self.annotations.loc[:, config.LABEL_COLUMN].notna()
-                & self.annotations.loc[:, config.LABEL_COLUMN]
-                > 0
-            ),
-            :,
-        ]
         self.data_dir = data_dir
-        # List videos
-        self.file_list = [
-            file
-            for file in os.listdir(data_dir)
-            if file.endswith(".mp4") and file.split(".")[0] in self.annotations.index
-        ]
+        if annotations_file.endswith(".xlsx") or annotations_file.endswith(".csv"):
+            # convert label column to float
+            self.annotations.loc[:, self.label_column] = self.annotations.loc[
+                :, self.label_column
+            ].astype(float)
+            # Remove rows with missing values
+            self.annotations = self.annotations.loc[
+                (
+                    self.annotations.loc[:, self.label_column].notna()
+                    & self.annotations.loc[:, self.label_column]
+                    > 0
+                ),
+                :,
+            ]
+            # List videos
+            self.file_list = [
+                file
+                for file in os.listdir(data_dir)
+                if file.endswith(".mp4")
+                and file.split(".")[0] in self.annotations.index
+            ]
+            assert len(self.file_list) == len(self.annotations)
         self.fps = fps
         self.transform = transform
         self.target_transform = target_transform
@@ -102,17 +150,32 @@ class VideoDataset(Dataset):
             tuple[torch.Tensor, torch.float]: Video and label.
         """
         # file name in index
-        video_name = self.annotations.index[idx] + ".mp4"
+        if self.annotations_file.endswith(".xlsx") or self.annotations_file.endswith(
+            ".csv"
+        ):
+            video_name = self.annotations.index[idx] + ".mp4"
+            label = self.annotations.loc[:, self.label_column].iloc[idx]
+        elif self.annotations_file.endswith(".json"):
+            video_name = self.annotations.loc[idx, "file_upload"]
+            # search for video file suffix in data_dir
+            video_name = [
+                file for file in os.listdir(self.data_dir) if video_name.endswith(file)
+            ][0]
+            raise NotImplementedError("Label Studio annotations not implemented yet.")
+        else:
+            raise ValueError("Annotations file must be a csv, xlsx or json file.")
         video, _, info = torchvision.io.read_video(
             os.path.join(self.data_dir, video_name),
             pts_unit="sec",
             output_format="TCHW",
         )
         # Resample video fps
-        video = resample_video(video=video, fps=info["video_fps"], target_fps=self.fps)
+        if self.fps is not None and self.fps != info["video_fps"]:
+            video = resample_video(
+                video=video, fps=info["video_fps"], target_fps=self.fps
+            )
         if self.transform:
             video = self.transform(video)
-        label = self.annotations.loc[:, config.LABEL_COLUMN].iloc[idx]
         if self.target_transform:
             label = self.target_transform(label)
         return video, label
