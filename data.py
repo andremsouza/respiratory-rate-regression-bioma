@@ -7,6 +7,7 @@
 import gc
 import glob
 import os
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -34,8 +35,14 @@ class VideoDataset(Dataset):
     """Dataset for video data."""
 
     def __init__(
-        self, annotations_file, data_dir, fps=7.5, transform=None, target_transform=None
-    ):
+        self,
+        annotations_file: str,
+        data_dir: str,
+        fps: float = 7.5,
+        transform: Callable | None = None,
+        target_transform: Callable | None = None,
+        filter_ids: list[str] | None = None,
+    ) -> None:
         """Initialize the dataset.
 
         Args:
@@ -45,6 +52,7 @@ class VideoDataset(Dataset):
             transform (callable, optional): Optional transform to be applied on a sample.
             target_transform (callable, optional): Optional transform to be applied on the
                 target of a sample.
+            filter_ids (list, optional): List of ids to filter. Defaults to None.
         """
         self.annotations_file = annotations_file
         self.label_column = config.LABEL_COLUMN
@@ -59,47 +67,12 @@ class VideoDataset(Dataset):
                 )
             # if json file, load it and preprocess (Label Studio)
             elif annotations_file.endswith(".json"):
-                self.annotations = pd.read_json(annotations_file)
-                self.annotations = pd.concat(
-                    [
-                        self.annotations,
-                        pd.json_normalize(self.annotations["annotations"])
-                        .set_index(self.annotations.index)
-                        .add_prefix("annotations."),
-                    ],
-                    axis=1,
+                self.label_column = "breathing_rate"
+                self.annotations = load_label_studio_annotations(
+                    annotations_file=annotations_file,
+                    label_column="value",
+                    filter_ids=filter_ids,
                 )
-                self.annotations = self.annotations.drop(columns=["annotations"])
-                self.annotations = self.annotations.melt(
-                    id_vars=[
-                        "id",
-                        "file_upload",
-                        "drafts",
-                        "predictions",
-                        "data",
-                        "meta",
-                        "created_at",
-                        "updated_at",
-                        "inner_id",
-                        "total_annotations",
-                        "cancelled_annotations",
-                        "total_predictions",
-                        "comment_count",
-                        "unresolved_comment_count",
-                        "last_comment_updated_at",
-                        "project",
-                        "updated_by",
-                        "comment_authors",
-                    ],
-                    value_vars=[
-                        col
-                        for col in self.annotations.columns
-                        if col.startswith("annotations.")
-                    ],
-                    var_name="annotation",
-                    value_name="value",
-                )
-                self.label_column = "value"
             else:
                 raise ValueError("Annotations file must be a csv, xlsx or json file.")
         elif isinstance(annotations_file, pd.DataFrame):
@@ -153,22 +126,56 @@ class VideoDataset(Dataset):
         if self.annotations_file.endswith(".xlsx") or self.annotations_file.endswith(
             ".csv"
         ):
+            # Get video name
             video_name = self.annotations.index[idx] + ".mp4"
+            # Get label
             label = self.annotations.loc[:, self.label_column].iloc[idx]
+            # Read video
+            video, _, info = torchvision.io.read_video(
+                os.path.join(self.data_dir, video_name),
+                pts_unit="sec",
+                output_format="TCHW",
+            )
         elif self.annotations_file.endswith(".json"):
+            # Get video name
             video_name = self.annotations.loc[idx, "file_upload"]
-            # search for video file suffix in data_dir
+            # Get label
+            label = self.annotations.loc[idx, self.label_column]
+            # Search for video file suffix in data_dir
             video_name = [
                 file for file in os.listdir(self.data_dir) if video_name.endswith(file)
             ][0]
-            raise NotImplementedError("Label Studio annotations not implemented yet.")
+            # Read video
+            video, _, info = torchvision.io.read_video(
+                os.path.join(self.data_dir, video_name),
+                pts_unit="sec",
+                output_format="TCHW",
+            )
+            # Bounding box transform (if available)
+            try:
+                bboxes_sequence = [
+                    x
+                    for x in self.annotations.loc[idx, "value"]
+                    if x["type"] == "videorectangle"
+                ][0]["value"]["sequence"]
+
+            except (IndexError, KeyError, ValueError):
+                pass
+            else:
+                video = bounding_box_transform(video, bboxes_sequence)
+            # Trim video time (if available)
+            try:
+                start_time = self.annotations.loc[idx, "segment.value.start"]
+                end_time = self.annotations.loc[idx, "segment.value.end"]
+            except KeyError:
+                pass
+            else:
+                start_frame = int(start_time * info["video_fps"])
+                end_frame = int(end_time * info["video_fps"])
+                video = video[start_frame:end_frame, :, :, :]
+
         else:
             raise ValueError("Annotations file must be a csv, xlsx or json file.")
-        video, _, info = torchvision.io.read_video(
-            os.path.join(self.data_dir, video_name),
-            pts_unit="sec",
-            output_format="TCHW",
-        )
         # Resample video fps
         if self.fps is not None and self.fps != info["video_fps"]:
             video = resample_video(
@@ -179,6 +186,127 @@ class VideoDataset(Dataset):
         if self.target_transform:
             label = self.target_transform(label)
         return video, label
+
+
+# %% [markdown]
+# # Data loaders/readers
+
+# %%
+
+
+def load_label_studio_annotations(
+    annotations_file: str | dict,
+    label_column: str = "value",
+    filter_ids: list[str] | None = None,
+) -> pd.DataFrame:
+    """Load annotations from a Label Studio JSON file.
+
+    Args:
+        annotations_file (str | dict): Path to the annotations file or dictionary of
+            annotations.
+        data_dir (str): Path to the directory containing the videos.
+        label_column (str, optional): Name of the column containing the labels.
+            Defaults to "value".
+        filter_ids (list[str] | None, optional): List of ids to keep. Defaults to None.
+
+    Returns:
+        pd.DataFrame: Annotations.
+    """
+    # Load annotations
+    if isinstance(annotations_file, str):
+        annotations = pd.read_json(annotations_file)
+    elif isinstance(annotations_file, dict):
+        annotations = pd.DataFrame(annotations_file)
+    else:
+        raise ValueError(
+            "Annotations file must be a json file path or a dictionary of annotations."
+        )
+    # Filter annotations
+    if filter_ids is not None:
+        annotations = annotations.loc[annotations["id"].isin(filter_ids), :]
+    # Get annotation values of each annotation and append as columns
+    # (rows when more than one annotation)
+    annotations = pd.concat(
+        [
+            annotations,
+            pd.json_normalize(annotations.set_index("id")["annotations"])
+            .set_index(annotations.index)
+            .add_prefix("annotations."),
+        ],
+        axis=1,
+    )
+    # Drop annotations column
+    annotations = annotations.drop(columns=["annotations"])
+    # Melt annotations columns into rows
+    annotations = annotations.melt(
+        id_vars=[
+            col for col in annotations.columns if not col.startswith("annotations.")
+        ],
+        value_vars=[
+            col for col in annotations.columns if col.startswith("annotations.")
+        ],
+        var_name="annotation",
+        value_name="value",
+    )
+    # Remove temporary prefix
+    annotations["annotation"] = annotations["annotation"].str.replace(
+        "annotations.", ""
+    )
+    # Get annotation values of each annotation and append as columns
+    # (rows when more than one annotation)
+    annotations = pd.concat(
+        [
+            annotations,
+            pd.json_normalize(annotations.set_index("id")["value"])
+            .set_index(annotations.index)
+            .add_prefix("annotation."),
+        ],
+        axis=1,
+    )
+    # Drop value column
+    annotations = annotations.drop(columns=["value"])
+    # Melt annotation columns into rows
+    annotations = annotations.melt(
+        id_vars=[col for col in annotations.columns if not col.endswith("result")],
+        value_vars=[col for col in annotations.columns if col.endswith("result")],
+        var_name="annotation_value",
+        value_name=label_column,
+    )
+    # Remove temporary prefix
+    annotations["annotation_value"] = annotations["annotation_value"].str.replace(
+        "annotation.", ""
+    )
+    # For each row, get video segments and append as columns (rows when more than one segment)
+    for i, row in annotations.iterrows():
+        new_rows = []
+        segments = pd.json_normalize(
+            [
+                video_segment
+                for video_segment in row["value"]
+                if video_segment["type"] == "labels"
+            ]
+        ).add_prefix("segment.")
+        # concatenate each segment as a row to the dataframe
+        # keep row's columns and add segment's columns
+        for j, video_segment in segments.iterrows():
+            new_rows.append(pd.concat([row, video_segment], axis=0))
+        # remove row
+        annotations = annotations.drop(i)
+        # concatenate new rows
+        annotations = pd.concat([annotations, pd.DataFrame(new_rows)], axis=0)
+    # Reset index
+    annotations = annotations.reset_index(drop=True)
+    # For each row, get breathing rate
+    for i, row in annotations.iterrows():
+        breathing_rate: float = [x for x in row["value"] if x["type"] == "number"][0][
+            "value"
+        ]["number"]
+        annotations.loc[i, "breathing_rate"] = breathing_rate
+    # Filter rows with no breathing rate (0)
+    annotations = annotations.loc[annotations["breathing_rate"] > 0, :]
+    # Drop temporary columns
+
+    return annotations
 
 
 # %% [markdown]
@@ -659,7 +787,7 @@ def interpolate_bboxes(
             # with numpy
             # get the times for each frame
             times: np.ndarray = np.linspace(
-                start_time, end_time, end_frame - start_frame
+                start=start_time, stop=end_time, num=end_frame - start_frame
             )
             # get the x coordinates for each frame
             xs: np.ndarray = np.linspace(start_x, end_x, end_frame - start_frame)
@@ -722,8 +850,7 @@ def interpolate_bboxes(
         )
         # return the interpolated bounding boxes
         return interpolated_bboxes
-    else:
-        raise NotImplementedError
+    raise NotImplementedError
 
 
 def transform_to_bbox(
