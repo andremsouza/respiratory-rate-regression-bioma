@@ -162,7 +162,9 @@ class VideoDataset(Dataset):
             except (IndexError, KeyError, ValueError):
                 pass
             else:
-                video = bounding_box_transform(video, bboxes_sequence)
+                video = bounding_box_transform(
+                    video, bboxes_sequence, fps=info["video_fps"], percent=True
+                )
             # Trim video time (if available)
             try:
                 start_time = self.annotations.loc[idx, "segment.value.start"]
@@ -177,7 +179,7 @@ class VideoDataset(Dataset):
         else:
             raise ValueError("Annotations file must be a csv, xlsx or json file.")
         # Resample video fps
-        if self.fps is not None and self.fps != info["video_fps"]:
+        if self.fps is not None and self.fps < info["video_fps"]:
             video = resample_video(
                 video=video, fps=info["video_fps"], target_fps=self.fps
             )
@@ -669,6 +671,8 @@ def bounding_box_transform(
     video: torch.Tensor,
     bboxes: list[dict],
     interpolation: str = "linear",
+    fps: float | None = None,
+    percent: bool = False,
 ) -> torch.Tensor:
     """Transform the video to a bounding box.
 
@@ -692,12 +696,16 @@ def bounding_box_transform(
         bboxes (list[dict]): The list of bounding boxes.
         interpolation (int, optional): The interpolation method to use. Defaults to
             "linear".
+        fps (float, optional): The frames per second of the video. Defaults to None.
+        percent (bool, optional): Whether the bounding box coordinates are in percent.
 
     Returns:
         torch.Tensor: The transformed video.
     """
     # interpolate bounding boxes for each frame
-    bboxes = interpolate_bboxes(bboxes, video.shape[0], interpolation=interpolation)
+    bboxes = interpolate_bboxes(
+        bboxes, video.shape[0], interpolation=interpolation, fps=fps
+    )
     # transform video to bounding box
     # each frame has a different bounding box
     assert video.shape[0] == len(bboxes)
@@ -713,12 +721,16 @@ def bounding_box_transform(
             width=bbox["width"],
             height=bbox["height"],
             rotation=bbox["rotation"],
+            percent=percent,
         )
     return transformed_video
 
 
 def interpolate_bboxes(
-    bboxes: list[dict], num_frames: int, interpolation: str = "linear"
+    bboxes: list[dict],
+    num_frames: int,
+    interpolation: str = "linear",
+    fps: float | None = None,
 ) -> list[dict]:
     """Interpolate bounding boxes.
 
@@ -741,6 +753,7 @@ def interpolate_bboxes(
         num_frames (int): The number of frames in the video.
         interpolation (int, optional): The interpolation method to use. Defaults to
             "linear".
+        fps (float, optional): The frames per second of the video. Defaults to None.
 
     Returns:
         list[dict]: The interpolated bounding boxes.
@@ -765,8 +778,14 @@ def interpolate_bboxes(
             start_time: float = start_bbox["time"]
             end_time: float = end_bbox["time"]
             # get the start and end frames
-            start_frame: int = start_bbox["frame"]
-            end_frame: int = end_bbox["frame"]
+            if fps is not None:
+                # if fps is provided, use it to calculate the start and end frames
+                start_frame = int(start_time * fps) + 1
+                end_frame = int(end_time * fps) + 1
+            else:
+                # otherwise, use the start and end frames provided
+                start_frame: int = start_bbox["frame"]
+                end_frame: int = end_bbox["frame"]
             # get the start and end x coordinates
             start_x: float = start_bbox["x"]
             end_x: float = end_bbox["x"]
@@ -790,20 +809,24 @@ def interpolate_bboxes(
                 start=start_time, stop=end_time, num=end_frame - start_frame
             )
             # get the x coordinates for each frame
-            xs: np.ndarray = np.linspace(start_x, end_x, end_frame - start_frame)
+            xs: np.ndarray = np.linspace(
+                start=start_x, stop=end_x, num=end_frame - start_frame
+            )
             # get the y coordinates for each frame
-            ys: np.ndarray = np.linspace(start_y, end_y, end_frame - start_frame)
+            ys: np.ndarray = np.linspace(
+                start=start_y, stop=end_y, num=end_frame - start_frame
+            )
             # get the widths for each frame
             widths: np.ndarray = np.linspace(
-                start_width, end_width, end_frame - start_frame
+                start=start_width, stop=end_width, num=end_frame - start_frame
             )
             # get the heights for each frame
             heights: np.ndarray = np.linspace(
-                start_height, end_height, end_frame - start_frame
+                start=start_height, stop=end_height, num=end_frame - start_frame
             )
             # get the rotations for each frame
             rotations: np.ndarray = np.linspace(
-                start_rotation, end_rotation, end_frame - start_frame
+                start=start_rotation, stop=end_rotation, num=end_frame - start_frame
             )
 
             # append the interpolated bounding boxes
@@ -828,18 +851,20 @@ def interpolate_bboxes(
                 )
             ]
         # append the last bounding box to remaining frames, adjusting the frame number
-        interpolated_bboxes += [
-            {
-                "x": bboxes[-1]["x"],
-                "y": bboxes[-1]["y"],
-                "time": bboxes[-1]["time"],
-                "frame": bboxes[-1]["frame"] + i + 1,
-                "width": bboxes[-1]["width"],
-                "height": bboxes[-1]["height"],
-                "rotation": bboxes[-1]["rotation"],
-            }
-            for i in range(num_frames - bboxes[-1]["frame"])
-        ]
+        last_bbox_frame: int = interpolated_bboxes[-1]["frame"]
+        while len(interpolated_bboxes) < num_frames:
+            interpolated_bboxes.append(
+                {
+                    "x": bboxes[-1]["x"],
+                    "y": bboxes[-1]["y"],
+                    "time": bboxes[-1]["time"],  # TODO: calculate time
+                    "frame": last_bbox_frame + 1,
+                    "width": bboxes[-1]["width"],
+                    "height": bboxes[-1]["height"],
+                    "rotation": bboxes[-1]["rotation"],
+                }
+            )
+            last_bbox_frame += 1
         # Raise exception if the number of interpolated bounding boxes is not equal to
         # the number of frames
         assert len(interpolated_bboxes) == num_frames
@@ -861,6 +886,7 @@ def transform_to_bbox(
     height: float,
     rotation: float,
     interpolation: str = "bilinear",
+    percent: bool = False,
 ) -> torch.Tensor:
     """Transforms a frame to a bounding box.
 
@@ -873,12 +899,19 @@ def transform_to_bbox(
         rotation (float): The rotation of the bounding box in degrees.
         interpolation (str, optional): The interpolation method to use. Defaults to
             "bilinear".
+        percent (bool, optional): Whether the x, y, width, and height are in percent.
 
     Returns:
         torch.Tensor: The transformed frame.
     """
     # get original frame size
     original_height, original_width = frame.shape[-2:]
+    # convert percent to pixels
+    if percent:
+        x *= original_width / 100
+        y *= original_height / 100
+        width *= original_width / 100
+        height *= original_height / 100
     # rotate
     frame = torchvision.transforms.functional.rotate(
         frame,
