@@ -306,7 +306,8 @@ def load_label_studio_annotations(
         annotations.loc[i, "breathing_rate"] = breathing_rate
     # Filter rows with no breathing rate (0)
     annotations = annotations.loc[annotations["breathing_rate"] > 0, :]
-    # Drop temporary columns
+    # Reset index
+    annotations = annotations.reset_index(drop=True)
 
     return annotations
 
@@ -937,6 +938,7 @@ def transform_to_bbox(
             "bilinear": torchvision.transforms.functional.InterpolationMode.BILINEAR,
             "nearest": torchvision.transforms.functional.InterpolationMode.NEAREST,
         }[interpolation],
+        antialias=True,
     )
     # return the transformed frame
     return frame
