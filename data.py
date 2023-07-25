@@ -42,6 +42,9 @@ class VideoDataset(Dataset):
         transform: Callable | None = None,
         target_transform: Callable | None = None,
         filter_ids: list[str] | None = None,
+        bbox_transform: bool = False,
+        trim_video: bool = False,
+        classification: bool = False,
     ) -> None:
         """Initialize the dataset.
 
@@ -67,11 +70,17 @@ class VideoDataset(Dataset):
                 )
             # if json file, load it and preprocess (Label Studio)
             elif annotations_file.endswith(".json"):
-                self.label_column = "breathing_rate"
+                self.label_column = {
+                    False: "breathing_rate",
+                    True: "segment_label",
+                }[classification]
                 self.annotations = load_label_studio_annotations(
                     annotations_file=annotations_file,
                     label_column="value",
                     filter_ids=filter_ids,
+                    filter_breathing_rate_zero=bool(not classification),
+                    set_nok_breathing_rate_to_zero=True,
+                    set_whole_video_to_not_ok=True,
                 )
             else:
                 raise ValueError("Annotations file must be a csv, xlsx or json file.")
@@ -108,6 +117,8 @@ class VideoDataset(Dataset):
         self.fps = fps
         self.transform = transform
         self.target_transform = target_transform
+        self.bbox_transform = bbox_transform
+        self.trim_video = trim_video
 
     def __len__(self) -> int:
         """Return the length of the dataset."""
@@ -152,29 +163,31 @@ class VideoDataset(Dataset):
                 output_format="TCHW",
             )
             # Bounding box transform (if available)
-            try:
-                bboxes_sequence = [
-                    x
-                    for x in self.annotations.loc[idx, "value"]
-                    if x["type"] == "videorectangle"
-                ][0]["value"]["sequence"]
+            if self.bbox_transform:
+                try:
+                    bboxes_sequence = [
+                        x
+                        for x in self.annotations.loc[idx, "value"]
+                        if x["type"] == "videorectangle"
+                    ][0]["value"]["sequence"]
 
-            except (IndexError, KeyError, ValueError):
-                pass
-            else:
-                video = bounding_box_transform(
-                    video, bboxes_sequence, fps=info["video_fps"], percent=True
-                )
+                except (IndexError, KeyError, ValueError):
+                    pass
+                else:
+                    video = bounding_box_transform(
+                        video, bboxes_sequence, fps=info["video_fps"], percent=True
+                    )
             # Trim video time (if available)
-            try:
-                start_time = self.annotations.loc[idx, "segment.value.start"]
-                end_time = self.annotations.loc[idx, "segment.value.end"]
-            except KeyError:
-                pass
-            else:
-                start_frame = int(start_time * info["video_fps"])
-                end_frame = int(end_time * info["video_fps"])
-                video = video[start_frame:end_frame, :, :, :]
+            if self.trim_video:
+                try:
+                    start_time = self.annotations.loc[idx, "segment.value.start"]
+                    end_time = self.annotations.loc[idx, "segment.value.end"]
+                except KeyError:
+                    pass
+                else:
+                    start_frame = int(start_time * info["video_fps"])
+                    end_frame = int(end_time * info["video_fps"])
+                    video = video[start_frame:end_frame, :, :, :]
 
         else:
             raise ValueError("Annotations file must be a csv, xlsx or json file.")
@@ -201,7 +214,7 @@ def load_label_studio_annotations(
     label_column: str = "value",
     filter_ids: list[str] | None = None,
     filter_breathing_rate_zero: bool = True,
-    set_nok_breathe_rate_to_zero: bool = True,
+    set_nok_breathing_rate_to_zero: bool = True,
     set_whole_video_to_not_ok: bool = True,
 ) -> pd.DataFrame:
     """Load annotations from a Label Studio JSON file.
@@ -344,31 +357,37 @@ def load_label_studio_annotations(
             # concatenate new rows
             annotations = pd.concat([annotations, pd.DataFrame(new_rows)], axis=0)
         else:
-            # If there are no segments, add a row with the whole video
-            new_row = row.copy()
-            new_row["segment.value.start"] = 0.0
-            new_row["segment.value.end"] = None
-            new_row["segment.value.labels"] = ["Not OK"]
-            annotations = annotations.drop(i)
-            annotations = pd.concat([annotations, pd.DataFrame([new_row])], axis=0)
+            # If there are no segments, update row with the whole video
+            row["segment.value.start"] = 0.0
+            row["segment.value.end"] = None
+            row["segment.value.labels"] = {
+                True: ["Not OK"],
+                False: ["OK"],
+            }[set_whole_video_to_not_ok]
     # Reset index
     annotations = annotations.reset_index(drop=True)
     # Sort by id and start time
     annotations = annotations.sort_values(
         by=["id", "segment.value.start"], ascending=True
     )
-    # For each row, get breathing rate
+    # Drop rows without start time
+    annotations = annotations.loc[annotations["segment.value.start"].notna(), :]
+    # For each row, get breathing rate and segment label
     for i, row in annotations.iterrows():
         try:
             breathing_rate: float = [x for x in row["value"] if x["type"] == "number"][
                 0
             ]["value"]["number"]
-        except (IndexError, KeyError, ValueError):
+        except (IndexError, KeyError, TypeError, ValueError):
             breathing_rate = 0
         annotations.loc[i, "breathing_rate"] = breathing_rate
         # Set breathing rate to 0 if not OK
-        if set_nok_breathe_rate_to_zero and "Not OK" in row["segment.value.labels"]:
+        if set_nok_breathing_rate_to_zero and "Not OK" in row["segment.value.labels"]:
             annotations.loc[i, "breathing_rate"] = 0
+        annotations.loc[i, "segment_label"] = {
+            "Not OK": 0,
+            "OK": 1,
+        }[annotations.loc[i, "segment.value.labels"][0]]
 
     # Filter rows with no breathing rate (0)
     if filter_breathing_rate_zero:
@@ -390,7 +409,6 @@ def expand_video_into_batches(
     batch_size: int = 16,
     stride: int = 8,
     first_only: bool = False,
-    device: str | torch.device = DEVICE,
 ) -> torch.Tensor:
     """Expand a video with a single label into batches of frames.
 
@@ -423,9 +441,7 @@ def expand_video_into_batches(
     return batches
 
 
-def expand_label(
-    label: float, number_of_batches: int, device: str | torch.device = DEVICE
-) -> torch.Tensor:
+def expand_label(label: float, number_of_batches: int) -> torch.Tensor:
     """Expand a label into a tensor of shape (batches, 1).
 
     Args:
@@ -447,7 +463,6 @@ def resample_video(
     video: torch.Tensor,
     fps: float,
     target_fps: float,
-    device: str | torch.device = DEVICE,
 ) -> torch.Tensor:
     """Resample a video to a target fps.
 
@@ -852,8 +867,8 @@ def interpolate_bboxes(
                 end_frame = int(end_time * fps) + 1
             else:
                 # otherwise, use the start and end frames provided
-                start_frame: int = start_bbox["frame"]
-                end_frame: int = end_bbox["frame"]
+                start_frame = start_bbox["frame"]
+                end_frame = end_bbox["frame"]
             # get the start and end x coordinates
             start_x: float = start_bbox["x"]
             end_x: float = end_bbox["x"]
@@ -956,7 +971,7 @@ def transform_to_bbox(
     interpolation: str = "bilinear",
     percent: bool = False,
 ) -> torch.Tensor:
-    """Transforms a frame to a bounding box.
+    """Transform a frame to a bounding box.
 
     Args:
         frame (torch.Tensor): The frame to transform.
