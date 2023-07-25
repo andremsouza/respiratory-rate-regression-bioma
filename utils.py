@@ -131,7 +131,6 @@ def train(
                     batch_size=config.BATCH_SIZE,
                     stride=config.STRIDE,
                     first_only=True,
-                    device="cpu",
                 ).float()
                 # remove stride frames from inputs
                 inputs = inputs[:, config.STRIDE :, :, :].float()
@@ -231,7 +230,6 @@ def train(
                         batch_size=config.BATCH_SIZE,
                         stride=config.STRIDE,
                         first_only=True,
-                        device="cpu",
                     ).float()
                     # remove stride frames from inputs
                     inputs = inputs[:, config.STRIDE :, :, :].float()
