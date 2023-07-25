@@ -64,7 +64,8 @@ train_loader = DataLoader(
         # transforms(
         # data.expand_video_into_batches(x, batch_size=16, stride=8, device=device)
         # ),
-        target_transform=lambda x: data.expand_label(x, 1, device=device),
+        target_transform=lambda x: data.expand_label(x, 1),
+        # filter_ids=[5007, 5008, 5009, 5010, 5011, 5012],
     ),
     batch_size=1,
     shuffle=True,
@@ -79,7 +80,8 @@ test_loader = DataLoader(
         # transforms(
         # data.expand_video_into_batches(x, batch_size=16, stride=8, device=device)
         # ),
-        target_transform=lambda x: data.expand_label(x, 1, device=device),
+        target_transform=lambda x: data.expand_label(x, 1),
+        # filter_ids=[5007, 5008, 5009, 5010, 5011, 5012],
     ),
     batch_size=1,
     shuffle=True,
@@ -165,5 +167,6 @@ for learning_rate in models.LEARNING_RATES:
         model.state_dict(),
         f"{config.MODELS_DIRECTORY}{model.__class__.__name__}_{learning_rate}_best.pt",
     )
+    break
 
 # %%
