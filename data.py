@@ -200,6 +200,9 @@ def load_label_studio_annotations(
     annotations_file: str | dict,
     label_column: str = "value",
     filter_ids: list[str] | None = None,
+    filter_breathing_rate_zero: bool = True,
+    set_nok_breathe_rate_to_zero: bool = True,
+    set_whole_video_to_not_ok: bool = True,
 ) -> pd.DataFrame:
     """Load annotations from a Label Studio JSON file.
 
@@ -210,7 +213,12 @@ def load_label_studio_annotations(
         label_column (str, optional): Name of the column containing the labels.
             Defaults to "value".
         filter_ids (list[str] | None, optional): List of ids to keep. Defaults to None.
-
+        filter_breathing_rate_zero (bool, optional): Whether to filter out annotations
+            with breathing rate of 0. Defaults to True.
+        set_nok_breathe_rate_to_zero (bool, optional): Whether to set the breathing rate
+            to 0 for annotations with "Not OK" label. Defaults to True.
+        set_whole_video_to_not_ok (bool, optional): Whether to set the whole video to
+            "Not OK" if there are no segments. Defaults to True.
     Returns:
         pd.DataFrame: Annotations.
     """
@@ -281,31 +289,90 @@ def load_label_studio_annotations(
     # For each row, get video segments and append as columns (rows when more than one segment)
     for i, row in annotations.iterrows():
         new_rows = []
-        segments = pd.json_normalize(
-            [
-                video_segment
-                for video_segment in row["value"]
-                if video_segment["type"] == "labels"
-            ]
-        ).add_prefix("segment.")
-        # concatenate each segment as a row to the dataframe
-        # keep row's columns and add segment's columns
-        for j, video_segment in segments.iterrows():
-            new_rows.append(pd.concat([row, video_segment], axis=0))
-        # remove row
-        annotations = annotations.drop(i)
-        # concatenate new rows
-        annotations = pd.concat([annotations, pd.DataFrame(new_rows)], axis=0)
+        # If there is at least one segment
+        if (
+            isinstance(row["value"], list)
+            and len([seg for seg in row["value"] if seg["type"] == "labels"]) > 0
+        ):
+            segments = pd.json_normalize(
+                [seg for seg in row["value"] if seg["type"] == "labels"]
+            ).add_prefix("segment.")
+            # sort segments by start time
+            segments = segments.sort_values(
+                by=["segment.value.start"], ascending=True
+            ).reset_index(drop=True)
+            # concatenate each segment as a row to the dataframe
+            # keep row's columns and add segment's columns
+            segment_ranges: list[tuple[float, float]] = []
+            for j, video_segment in segments.iterrows():
+                segment_ranges.append(
+                    (
+                        video_segment["segment.value.start"],
+                        video_segment["segment.value.end"],
+                    )
+                )
+                new_rows.append(pd.concat([row, video_segment], axis=0))
+            # calculate ranges' complement
+            complement_ranges = []
+            for j, segment_range in enumerate(segment_ranges):
+                if j == 0:
+                    complement_ranges.append((0.0, segment_range[0]))
+                else:
+                    complement_ranges.append(
+                        (segment_ranges[j - 1][1], segment_range[0])
+                    )
+            # add last complement
+            complement_ranges.append(
+                (
+                    float(segment_ranges[-1][1]),
+                    float(new_rows[0]["segment.original_length"]),
+                )
+            )
+            # add complement rows
+            for j, complement_range in enumerate(complement_ranges):
+                # copy last new row
+                new_row = new_rows[0].copy()
+                new_row["segment.value.start"] = complement_range[0]
+                new_row["segment.value.end"] = complement_range[1]
+                # set label to "Not OK"
+                new_row["segment.value.labels"] = ["Not OK"]
+                # append only if start and end are different
+                if complement_range[0] != complement_range[1]:
+                    new_rows.append(new_row)
+            # remove row
+            annotations = annotations.drop(i)
+            # concatenate new rows
+            annotations = pd.concat([annotations, pd.DataFrame(new_rows)], axis=0)
+        else:
+            # If there are no segments, add a row with the whole video
+            new_row = row.copy()
+            new_row["segment.value.start"] = 0.0
+            new_row["segment.value.end"] = None
+            new_row["segment.value.labels"] = ["Not OK"]
+            annotations = annotations.drop(i)
+            annotations = pd.concat([annotations, pd.DataFrame([new_row])], axis=0)
     # Reset index
     annotations = annotations.reset_index(drop=True)
+    # Sort by id and start time
+    annotations = annotations.sort_values(
+        by=["id", "segment.value.start"], ascending=True
+    )
     # For each row, get breathing rate
     for i, row in annotations.iterrows():
-        breathing_rate: float = [x for x in row["value"] if x["type"] == "number"][0][
-            "value"
-        ]["number"]
+        try:
+            breathing_rate: float = [x for x in row["value"] if x["type"] == "number"][
+                0
+            ]["value"]["number"]
+        except (IndexError, KeyError, ValueError):
+            breathing_rate = 0
         annotations.loc[i, "breathing_rate"] = breathing_rate
+        # Set breathing rate to 0 if not OK
+        if set_nok_breathe_rate_to_zero and "Not OK" in row["segment.value.labels"]:
+            annotations.loc[i, "breathing_rate"] = 0
+
     # Filter rows with no breathing rate (0)
-    annotations = annotations.loc[annotations["breathing_rate"] > 0, :]
+    if filter_breathing_rate_zero:
+        annotations = annotations.loc[annotations["breathing_rate"] > 0, :]
     # Reset index
     annotations = annotations.reset_index(drop=True)
 
