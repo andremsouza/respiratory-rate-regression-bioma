@@ -1075,8 +1075,8 @@ def split_annotations(
             random_state=random_seed,
         )
         # Save train and test annotation files
-        train_annotations.to_json(train_annotations_file, index=False)
-        test_annotations.to_json(test_annotations_file, index=False)
+        train_annotations.to_json(train_annotations_file)
+        test_annotations.to_json(test_annotations_file)
     else:
         raise NotImplementedError("Annotations file must be .csv or .json")
     return train_annotations_file, test_annotations_file
