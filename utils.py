@@ -326,7 +326,8 @@ def train(
         optimizer (torch.optim.Optimizer): Optimizer.
         device (torch.device | str, optional): Device to use. Defaults to torch.device("cpu").
         verbose (bool, optional): Print metrics. Defaults to True.
-        auto_augment (torchvision.transforms.AutoAugment | None, optional): Autoaugment transform. Defaults to None.
+        auto_augment (torchvision.transforms.AutoAugment | None, optional): Autoaugment transform.
+            Defaults to None.
         idx (int, optional): Number of samples evaluated. Defaults to 0.
         epoch (int, optional): Current epoch. Defaults to 0.
 
