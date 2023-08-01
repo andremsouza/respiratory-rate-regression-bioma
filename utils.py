@@ -424,32 +424,6 @@ def train(
     return model, epoch_training_loss, idx
 
 
-def save_model(model: torch.nn.Module, path: str) -> None:
-    """Save a PyTorch model.
-
-    Args:
-        model (torch.nn.Module): model to save
-        path (str): path to save model to
-
-    Returns:
-        None
-    """
-    torch.save(model.state_dict(), path)
-
-
-def load_model(model: torch.nn.Module, path: str) -> None:
-    """Load a PyTorch model.
-
-    Args:
-        model (torch.nn.Module): model to load
-        path (str): path to load model from
-
-    Returns:
-        None
-    """
-    model.load_state_dict(torch.load(path))
-
-
 # %% [markdown]
 # # Main
 
