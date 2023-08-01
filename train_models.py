@@ -32,21 +32,12 @@ device = torch.device(config.DEVICE)
 # Use seed for selecting training and test data
 RANDOM_SEED = 42
 # Load annotation file
-# If train_annotation and test_annotation files do not exist, create them
-try:
-    train_annotation = pd.read_csv(config.TRAIN_ANNOTATION_FILE)
-    test_annotation = pd.read_csv(config.TEST_ANNOTATION_FILE)
-except FileNotFoundError:
-    # Create train and test annotation files with random sampling
-    annotation = pd.read_csv(config.ANNOTATION_FILE)
-    train_annotation, test_annotation = train_test_split(
-        annotation,
-        test_size=0.2,
-        random_state=RANDOM_SEED,
-    )
-    # Save annotation files
-    train_annotation.to_csv(config.TRAIN_ANNOTATION_FILE, index=False)
-    test_annotation.to_csv(config.TEST_ANNOTATION_FILE, index=False)
+train_annotations_file, test_annotations_file = data.split_annotations(
+    config.ANNOTATION_FILE_REGRESSION,
+    train_percentage=config.TRAIN_PERCENTAGE,
+    val_percentage=config.VAL_PERCENTAGE,
+    random_seed=RANDOM_SEED,
+)
 
 # %% [markdown]
 # # MViT-V2
@@ -57,7 +48,7 @@ transforms = models.MViT_V2_S_Weights.DEFAULT.transforms()
 # torch.multiprocessing.set_start_method('spawn')
 train_loader = DataLoader(
     data.VideoDataset(
-        config.TRAIN_ANNOTATION_FILE,
+        train_annotations_file,
         config.DATA_DIRECTORY,
         fps=7.5,
         transform=transforms,
@@ -65,7 +56,10 @@ train_loader = DataLoader(
         # data.expand_video_into_batches(x, batch_size=16, stride=8, device=device)
         # ),
         target_transform=lambda x: data.expand_label(x, 1),
-        # filter_ids=[5007, 5008, 5009, 5010, 5011, 5012],
+        filter_ids=list(*range(5007, 5271)),
+        bbox_transform=True,
+        trim_video=True,
+        classification=False,
     ),
     batch_size=1,
     shuffle=True,
@@ -73,7 +67,7 @@ train_loader = DataLoader(
 )
 test_loader = DataLoader(
     data.VideoDataset(
-        config.TEST_ANNOTATION_FILE,
+        test_annotations_file,
         config.DATA_DIRECTORY,
         fps=7.5,
         transform=transforms,
@@ -81,7 +75,10 @@ test_loader = DataLoader(
         # data.expand_video_into_batches(x, batch_size=16, stride=8, device=device)
         # ),
         target_transform=lambda x: data.expand_label(x, 1),
-        # filter_ids=[5007, 5008, 5009, 5010, 5011, 5012],
+        filter_ids=list(*range(5007, 5271)),
+        bbox_transform=True,
+        trim_video=True,
+        classification=False,
     ),
     batch_size=1,
     shuffle=True,

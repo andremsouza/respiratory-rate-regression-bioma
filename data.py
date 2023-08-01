@@ -11,6 +11,7 @@ from typing import Callable
 
 import numpy as np
 import pandas as pd
+from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import Dataset
 import torchvision
@@ -1024,6 +1025,61 @@ def transform_to_bbox(
     )
     # return the transformed frame
     return frame
+
+
+def split_annotations(
+    annotations_file: str,
+    train_percentage: float = 0.8,
+    val_percentage: float = 0.2,
+    random_seed: int = 42,
+) -> tuple[str, str]:
+    """Split dataset into training and testing datasets.
+
+    Args:
+        annotations_file (str): The annotations file.
+        train_percentage (float, optional): The percentage of the dataset to use for
+            training. Defaults to 0.8.
+        val_percentage (float, optional): The percentage of the dataset to use for
+            validation. Defaults to 0.2.
+        ramdom_seed (int, optional): The random seed to use for splitting the dataset.
+            Defaults to 42.
+
+    Returns:
+        tuple[str, str]: The training and testing annotations files.
+    """
+    train_annotations_file: str = ""
+    test_annotations_file: str = ""
+    if annotations_file.endswith(".csv"):
+        train_annotations_file = annotations_file.replace(".csv", "_train.csv")
+        test_annotations_file = annotations_file.replace(".csv", "_test.csv")
+        annotations = pd.read_csv(annotations_file)
+        # Split
+        train_annotations, test_annotations = train_test_split(
+            annotations,
+            test_size=val_percentage,
+            train_size=train_percentage,
+            random_state=random_seed,
+        )
+        # Save train and test annotation files
+        train_annotations.to_csv(train_annotations_file)
+        test_annotations.to_csv(test_annotations_file)
+    elif annotations_file.endswith(".json"):
+        annotations = pd.read_json(annotations_file)
+        train_annotations_file = annotations_file.replace(".json", "_train.json")
+        test_annotations_file = annotations_file.replace(".json", "_test.json")
+        # Split
+        train_annotations, test_annotations = train_test_split(
+            annotations,
+            test_size=val_percentage,
+            train_size=train_percentage,
+            random_state=random_seed,
+        )
+        # Save train and test annotation files
+        train_annotations.to_json(train_annotations_file, index=False)
+        test_annotations.to_json(test_annotations_file, index=False)
+    else:
+        raise NotImplementedError("Annotations file must be .csv or .json")
+    return train_annotations_file, test_annotations_file
 
 
 # %%
