@@ -141,7 +141,7 @@ for learning_rate in models.LEARNING_RATES:
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
         optimizer=optimizer, T_0=10, T_mult=1, eta_min=1e-6, verbose=True
     )
-    best_model_weights, metrics = utils.train(
+    best_model_weights, metrics = utils.fit(
         model=model,
         train_loader=train_loader,
         test_loader=test_loader,

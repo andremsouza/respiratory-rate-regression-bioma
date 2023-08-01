@@ -9,6 +9,7 @@ import datetime
 import gc
 import warnings
 
+import numpy as np
 import torch
 import torchvision
 
@@ -21,7 +22,7 @@ import data
 # %%
 
 
-def train(
+def fit(
     model: torch.nn.Module,
     train_loader: torch.utils.data.DataLoader,
     test_loader: torch.utils.data.DataLoader,
@@ -107,7 +108,6 @@ def train(
         if verbose:
             print(f"Epoch {epoch + 1}/{epochs} | Time: {datetime.datetime.now()}")
         epoch_training_loss: float = 0.0
-        epoch_training_loss_sqrt: float = 0.0
         idx = 0
         # Train
         # # initialize inputs and labels tensors
@@ -116,158 +116,39 @@ def train(
         # # Acumulate labels and predictions for metrics
         # result_labels: torch.Tensor = torch.empty(0)
         # result_preds: torch.Tensor = torch.empty(0)
-        model.train()  # set model to training mode
-        for i, (inputs, labels) in enumerate(train_loader):
-            # free GPU and RAM memory
-            torch.cuda.empty_cache()
-            gc.collect()
-            # for each input, expand into batches of N frames with stride S
-            inputs = inputs.squeeze(0)
-            labels = labels.squeeze(0)
-            while inputs.shape[1] >= config.BATCH_SIZE:
-                # get first batch_size frames from inputs
-                inputs_first = data.expand_video_into_batches(
-                    inputs,
-                    batch_size=config.BATCH_SIZE,
-                    stride=config.STRIDE,
-                    first_only=True,
-                ).float()
-                # remove stride frames from inputs
-                inputs = inputs[:, config.STRIDE :, :, :].float()
-
-                # Autoaugment and send to device
-                inputs_augmented: list[torch.Tensor] | torch.Tensor = [
-                    inputs_first.to(torch.uint8)
-                ]
-                if auto_augment is not None:
-                    # squeeze batch dimension
-                    inputs_first = inputs_first.squeeze(0)
-                    # invert dimensions to use torchvision transforms
-                    # permute dimensions
-                    inputs_first = inputs_first.permute(1, 0, 2, 3)
-                    # create N augmented sequences and stack them
-                    for _ in range(config.AUTOAUGMENT_N):
-                        inputs_augmented.append(  # type: ignore
-                            auto_augment(inputs_first.to(torch.uint8))
-                            .permute(1, 0, 2, 3)
-                            .unsqueeze(0)
-                        )
-                    # add batch dimension
-                    inputs_augmented = torch.cat(inputs_augmented)  # type: ignore
-                    # permute back
-                    # inputs_augmented = inputs_augmented.permute(0, 2, 1, 3, 4)
-                    # send to device
-                    inputs_augmented = inputs_augmented.float().to(device)
-                else:
-                    # send to device
-                    inputs_augmented = inputs_first.float().to(device)
-
-                # Increment number of samples
-                # idx += inputs_augmented.shape[0]
-                idx += 1
-
-                # expand labels to comply with inputs_augmented shape
-                labels = labels.expand(inputs_augmented.shape[0], -1)
-                # send labels to device
-                labels = labels.float().to(device)
-                # zero the parameter gradients
-                optimizer.zero_grad()
-                # forward pass
-                outputs = model(inputs_augmented)
-
-                # backward pass
-                loss = loss_fn(outputs, labels)
-                loss.backward()
-                # optimize
-                optimizer.step()
-
-                # Gather data and report
-                epoch_training_loss += loss.item()
-                epoch_training_loss_sqrt += float(torch.tensor(loss.item()).sqrt())
-                if verbose and idx % 1000 == 999:
-                    print(
-                        f"Training | "
-                        f"Time {datetime.datetime.now()} | "
-                        f"Epoch {epoch+1:5d} | "
-                        f"Batch {i+1:5d} | "
-                        f"Avg batch loss {epoch_training_loss / (i+1):.4f} "
-                        f"({epoch_training_loss_sqrt / (i+1):.4f}) | "
-                        f"Avg sample loss {epoch_training_loss / idx:.4f} "
-                        f"({epoch_training_loss_sqrt / idx:.4f}) | "
-                        f"Sample label {labels} | "
-                        f"Sample prediction {outputs} | "
-                        f"Sample loss {loss.item():.4f} "
-                        f"({torch.tensor(loss.item()).sqrt():.4f})"
-                    )
-                # free GPU and RAM memory
-                torch.cuda.empty_cache()
-                del inputs_first
-                gc.collect()
+        model, epoch_training_loss, idx = train(
+            model,
+            train_loader,
+            loss_fn,
+            optimizer,
+            device,
+            verbose,
+            auto_augment,
+            idx,
+            epoch,
+        )
         # Append average epoch loss to metrics
         metrics["train_loss"].append(epoch_training_loss / idx)
-        metrics["train_loss_sqrt"].append(epoch_training_loss_sqrt / idx)
+        metrics["train_loss_sqrt"].append(np.sqrt(epoch_training_loss / idx))
         # free GPU and RAM memory
         torch.cuda.empty_cache()
         gc.collect()
         # Evaluate
         # TODO: Review validation code (output always the same)
         epoch_val_loss: float = 0.0
-        epoch_val_loss_sqrt: float = 0.0
         idx = 0
-        with torch.no_grad():
-            model.eval()  # set model to evaluation mode
-            for i, (inputs, labels) in enumerate(test_loader):
-                # free GPU and RAM memory
-                torch.cuda.empty_cache()
-                gc.collect()
-                # for each input, expand into batches of N frames with stride S
-                inputs = inputs.squeeze(0)
-                labels = labels.squeeze(0)
-                while inputs.shape[1] >= config.BATCH_SIZE:
-                    # get first batch_size frames from inputs
-                    inputs_first = data.expand_video_into_batches(
-                        inputs,
-                        batch_size=config.BATCH_SIZE,
-                        stride=config.STRIDE,
-                        first_only=True,
-                    ).float()
-                    # remove stride frames from inputs
-                    inputs = inputs[:, config.STRIDE :, :, :].float()
-                    # Increment number of samples
-                    idx += 1
-
-                    # send input and labels to device
-                    inputs_first = inputs_first.float().to(device)
-                    labels = labels.float().to(device)
-                    # forward pass
-                    outputs = model(inputs_first)
-                    # backward pass
-                    loss = loss_fn(outputs, labels)
-                    # Gather data and report
-                    epoch_val_loss += loss.item()
-                    epoch_val_loss_sqrt += float(torch.tensor(loss.item()).sqrt())
-                    if verbose and idx % 1000 == 999:
-                        print(
-                            f"Validation | "
-                            f"Time {datetime.datetime.now()} | "
-                            f"Epoch {epoch+1:5d} | "
-                            f"Batch {i+1:5d} | "
-                            f"Avg batch loss {epoch_val_loss / (i+1):.4f} | "
-                            f"({epoch_val_loss_sqrt / (i+1):.4f}) | "
-                            f"Avg sample loss {epoch_val_loss / idx:.4f} |"
-                            f"({epoch_val_loss_sqrt / idx:.4f}) | "
-                            f"Sample label {labels} | "
-                            f"Sample prediction {outputs} | "
-                            f"Sample loss {loss.item():.4f} "
-                            f"({torch.tensor(loss.item()).sqrt():.4f})"
-                        )
-                    # free GPU and RAM memory
-                    torch.cuda.empty_cache()
-                    del inputs_first
-                    gc.collect()
+        epoch_val_loss, idx, sample_labels, sample_preds = evaluate(
+            model,
+            test_loader,
+            loss_fn,
+            device,
+            verbose,
+            idx,
+            epoch,
+        )
         # Append average epoch loss to metrics
         metrics["val_loss"].append(epoch_val_loss / idx)
-        metrics["val_loss_sqrt"].append(epoch_val_loss_sqrt / idx)
+        metrics["val_loss_sqrt"].append(np.sqrt(epoch_val_loss / idx))
         # Print epoch metrics
         if verbose:
             print(
@@ -276,10 +157,10 @@ def train(
                 f"({metrics['train_loss_sqrt'][-1]:.4f}) | "
                 f"Val loss: {metrics['val_loss'][-1]:.4f} | "
                 f"({metrics['val_loss_sqrt'][-1]:.4f})"
-                f"Sample label {labels} | "
-                f"Sample prediction {outputs} | "
-                f"Sample loss {loss.item():.4f}"
-                f"({torch.tensor(loss.item()).sqrt():.4f})"
+                f"Sample label {sample_labels} | "
+                f"Sample prediction {sample_preds} | "
+                f"Sample loss {loss_fn(sample_preds, sample_labels).item():.4f}"
+                f"({np.sqrt(loss_fn(sample_preds, sample_labels).item()):.4f})"
             )
         # free GPU memory
         torch.cuda.empty_cache()
@@ -328,6 +209,185 @@ def train(
         print(f"End time: {datetime.datetime.now()}")
 
     return best_model_wts, metrics
+
+
+def evaluate(
+    model: torch.nn.Module,
+    test_loader: torch.utils.data.DataLoader,
+    loss_fn: torch.nn.Module,
+    device: torch.device | str = torch.device("cpu"),
+    verbose: bool = True,
+    idx: int = 0,
+    epoch: int = 0,
+    random_sample_threshold: float = 0.1,
+):
+    """Evaluate model on test set."""
+    epoch_val_loss: float = 0.0
+    sample_labels: torch.Tensor = torch.empty(0)
+    sample_preds: torch.Tensor = torch.empty(0)
+    model.eval()  # set model to evaluation mode
+    with torch.no_grad():
+        for i, (inputs, labels) in enumerate(test_loader):
+            # free GPU and RAM memory
+            torch.cuda.empty_cache()
+            gc.collect()
+            # for each input, expand into batches of N frames with stride S
+            inputs = inputs.squeeze(0)
+            labels = labels.squeeze(0)
+            while inputs.shape[1] >= config.BATCH_SIZE:
+                # get first batch_size frames from inputs
+                inputs_first = data.expand_video_into_batches(
+                    inputs,
+                    batch_size=config.BATCH_SIZE,
+                    stride=config.STRIDE,
+                    first_only=True,
+                ).float()
+                # remove stride frames from inputs
+                inputs = inputs[:, config.STRIDE :, :, :].float()
+                # Increment number of samples
+                idx += 1
+
+                # send input and labels to device
+                inputs_first = inputs_first.float().to(device)
+                labels = labels.float().to(device)
+                # forward pass
+                outputs = model(inputs_first)
+
+                # if first batch, initialize sample_labels and sample_preds
+                if idx == 1:
+                    sample_labels = labels
+                    sample_preds = outputs
+                else:
+                    # randomly select a sample to keep
+                    if np.random.rand() < random_sample_threshold:
+                        sample_labels = labels.to("cpu").detach().float()
+                        sample_preds = outputs.to("cpu").detach().float()
+                # backward pass
+                loss = loss_fn(outputs, labels)
+                # Gather data and report
+                epoch_val_loss += loss.item()
+                if verbose and idx % 1000 == 999:
+                    print(
+                        f"Validation | "
+                        f"Time {datetime.datetime.now()} | "
+                        f"Epoch {epoch+1:5d} | "
+                        f"Batch {i+1:5d} | "
+                        f"Avg batch loss {epoch_val_loss / (i+1):.4f} | "
+                        f"({np.sqrt(epoch_val_loss / (i+1)):.4f}) | "
+                        f"Avg sample loss {epoch_val_loss / idx:.4f} |"
+                        f"({np.sqrt(epoch_val_loss / idx):.4f}) | "
+                        f"Sample label {sample_labels} | "
+                        f"Sample prediction {sample_preds} | "
+                        f"Sample loss {loss_fn(sample_preds, sample_labels).item():.4f} "
+                        f"({torch.tensor(loss_fn(sample_preds, sample_labels).item()).sqrt():.4f})"
+                    )
+                    # free GPU and RAM memory
+                del inputs_first
+                torch.cuda.empty_cache()
+                gc.collect()
+    return epoch_val_loss, idx, sample_labels, sample_preds
+
+
+def train(
+    model: torch.nn.Module,
+    train_loader: torch.utils.data.DataLoader,
+    loss_fn: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device | str = torch.device("cpu"),
+    verbose: bool = True,
+    auto_augment: torchvision.transforms.AutoAugment | None = None,
+    idx: int = 0,
+    epoch: int = 0,
+):
+    """Train loop for a single epoch."""
+    epoch_training_loss: float = 0.0
+    model.train()  # set model to training mode
+    for i, (inputs, labels) in enumerate(train_loader):
+        # free GPU and RAM memory
+        torch.cuda.empty_cache()
+        gc.collect()
+        # for each input, expand into batches of N frames with stride S
+        inputs = inputs.squeeze(0)
+        labels = labels.squeeze(0)
+        while inputs.shape[1] >= config.BATCH_SIZE:
+            # get first batch_size frames from inputs
+            inputs_first = data.expand_video_into_batches(
+                inputs,
+                batch_size=config.BATCH_SIZE,
+                stride=config.STRIDE,
+                first_only=True,
+            ).float()
+            # remove stride frames from inputs
+            inputs = inputs[:, config.STRIDE :, :, :].float()
+
+            # Autoaugment and send to device
+            inputs_augmented: list[torch.Tensor] | torch.Tensor = [
+                inputs_first.to(torch.uint8)
+            ]
+            if auto_augment is not None:
+                # squeeze batch dimension
+                inputs_first = inputs_first.squeeze(0)
+                # invert dimensions to use torchvision transforms
+                # permute dimensions
+                inputs_first = inputs_first.permute(1, 0, 2, 3)
+                # create N augmented sequences and stack them
+                for _ in range(config.AUTOAUGMENT_N):
+                    inputs_augmented.append(  # type: ignore
+                        auto_augment(inputs_first.to(torch.uint8))
+                        .permute(1, 0, 2, 3)
+                        .unsqueeze(0)
+                    )
+                    # add batch dimension
+                inputs_augmented = torch.cat(inputs_augmented)  # type: ignore
+                # permute back
+                # inputs_augmented = inputs_augmented.permute(0, 2, 1, 3, 4)
+                # send to device
+                inputs_augmented = inputs_augmented.float().to(device)
+            else:
+                # send to device
+                inputs_augmented = inputs_first.float().to(device)
+
+                # Increment number of samples
+                # idx += inputs_augmented.shape[0]
+            idx += 1
+
+            # expand labels to comply with inputs_augmented shape
+            labels = labels.expand(inputs_augmented.shape[0], -1)
+            # send labels to device
+            labels = labels.float().to(device)
+            # zero the parameter gradients
+            optimizer.zero_grad()
+            # forward pass
+            outputs = model(inputs_augmented)
+
+            # backward pass
+            loss = loss_fn(outputs, labels)
+            loss.backward()
+            # optimize
+            optimizer.step()
+
+            # Gather data and report
+            epoch_training_loss += loss.item()
+            if verbose and idx % 1000 == 999:
+                print(
+                    f"Training | "
+                    f"Time {datetime.datetime.now()} | "
+                    f"Epoch {epoch+1:5d} | "
+                    f"Batch {i+1:5d} | "
+                    f"Avg batch loss {epoch_training_loss / (i+1):.4f} "
+                    f"({np.sqrt(epoch_training_loss / (i+1)):.4f}) | "
+                    f"Avg sample loss {epoch_training_loss / idx:.4f} "
+                    f"({np.sqrt(epoch_training_loss / idx):.4f}) | "
+                    f"Sample label {labels} | "
+                    f"Sample prediction {outputs} | "
+                    f"Sample loss {loss.item():.4f} "
+                    f"({torch.tensor(loss.item()).sqrt():.4f})"
+                )
+                # free GPU and RAM memory
+            del inputs_first
+            torch.cuda.empty_cache()
+            gc.collect()
+    return model, epoch_training_loss, idx
 
 
 def save_model(model: torch.nn.Module, path: str) -> None:
