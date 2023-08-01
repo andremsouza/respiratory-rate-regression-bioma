@@ -79,17 +79,18 @@ def fit(
     )
     if verbose:
         # print training info
-        print(f"Start time: {datetime.datetime.now()}")
-        print(f"Training {model.__class__.__name__} on {device}.")
-        print(f"Training data: {len(train_loader.dataset)}")  # type: ignore
-        print(f"Validation data: {len(test_loader.dataset)}")  # type: ignore
-        print(f"Loss function: {loss_fn.__class__.__name__}")
-        print(f"Optimizer: {optimizer.__class__.__name__}")
-        if scheduler is not None:
-            print(f"Learning rate scheduler: {scheduler.__class__.__name__}")
-        print(f"Patience: {patience}")
-        print(f"Epochs: {epochs}")
-        print(f"Device: {device}")
+        print(
+            f"Start time: {datetime.datetime.now()} | "
+            f"Training {model.__class__.__name__} on {device} | "
+            f"Training data: {len(train_loader.dataset)} | "  # type: ignore
+            f"Validation data: {len(test_loader.dataset)} | "  # type: ignore
+            f"Loss function: {loss_fn.__class__.__name__} | "
+            f"Optimizer: {optimizer.__class__.__name__} | "
+            f"Learning rate scheduler: {scheduler.__class__.__name__ if scheduler is not None else None} | "
+            f"Patience: {patience} | "
+            f"Epochs: {epochs} | "
+            f"Device: {device}"
+        )
     # initialize model
     model.to(device)
     # initialize metrics
