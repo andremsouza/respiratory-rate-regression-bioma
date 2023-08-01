@@ -10,8 +10,6 @@ file. For example:
 # %%
 import datetime
 
-import pandas as pd
-from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import DataLoader
 
@@ -56,7 +54,7 @@ train_loader = DataLoader(
         # data.expand_video_into_batches(x, batch_size=16, stride=8, device=device)
         # ),
         target_transform=lambda x: data.expand_label(x, 1),
-        filter_ids=list(*range(5007, 5271)),
+        filter_ids=[*range(5007, 5271)],
         bbox_transform=True,
         trim_video=True,
         classification=False,
@@ -75,7 +73,7 @@ test_loader = DataLoader(
         # data.expand_video_into_batches(x, batch_size=16, stride=8, device=device)
         # ),
         target_transform=lambda x: data.expand_label(x, 1),
-        filter_ids=list(*range(5007, 5271)),
+        filter_ids=[*range(5007, 5271)],
         bbox_transform=True,
         trim_video=True,
         classification=False,
