@@ -37,7 +37,7 @@ def fit(
     save_best: str = "memory",
     verbose: bool = True,
 ) -> tuple[dict | None, dict]:
-    """Train a PyTorch model.
+    """Fit a PyTorch model.
 
     Args:
         model (torch.nn.Module): PyTorch model.
@@ -220,8 +220,25 @@ def evaluate(
     idx: int = 0,
     epoch: int = 0,
     random_sample_threshold: float = 0.1,
-):
-    """Evaluate model on test set."""
+) -> tuple[float, int, torch.Tensor, torch.Tensor]:
+    """Evaluate model on test set.
+
+    Args:
+        model (torch.nn.Module): Model to evaluate.
+        test_loader (torch.utils.data.DataLoader): Test set data loader.
+        loss_fn (torch.nn.Module): Loss function.
+        device (torch.device | str, optional): Device to use. Defaults to torch.device("cpu").
+        verbose (bool, optional): Print metrics. Defaults to True.
+        idx (int, optional): Number of samples evaluated. Defaults to 0.
+        epoch (int, optional): Current epoch. Defaults to 0.
+        random_sample_threshold (float, optional): Probability of randomly sampling a batch. Defaults to 0.1.
+
+    Returns:
+        float: Average loss.
+        int: Number of samples evaluated.
+        torch.Tensor: Sample Labels.
+        torch.Tensor: Sample Predictions.
+    """
     epoch_val_loss: float = 0.0
     sample_labels: torch.Tensor = torch.empty(0)
     sample_preds: torch.Tensor = torch.empty(0)
@@ -298,8 +315,25 @@ def train(
     auto_augment: torchvision.transforms.AutoAugment | None = None,
     idx: int = 0,
     epoch: int = 0,
-):
-    """Train loop for a single epoch."""
+) -> tuple[torch.nn.Module, float, int]:
+    """Train loop for a single epoch.
+
+    Args:
+        model (torch.nn.Module): Model to train.
+        train_loader (torch.utils.data.DataLoader): Training set data loader.
+        loss_fn (torch.nn.Module): Loss function.
+        optimizer (torch.optim.Optimizer): Optimizer.
+        device (torch.device | str, optional): Device to use. Defaults to torch.device("cpu").
+        verbose (bool, optional): Print metrics. Defaults to True.
+        auto_augment (torchvision.transforms.AutoAugment | None, optional): Autoaugment transform. Defaults to None.
+        idx (int, optional): Number of samples evaluated. Defaults to 0.
+        epoch (int, optional): Current epoch. Defaults to 0.
+
+    Returns:
+        torch.nn.Module: Trained model.
+        float: Average loss.
+        int: Number of samples evaluated.
+    """
     epoch_training_loss: float = 0.0
     model.train()  # set model to training mode
     for i, (inputs, labels) in enumerate(train_loader):
