@@ -181,6 +181,8 @@ def fit(
                 best_model_wts = copy.deepcopy(model.state_dict())
             elif save_best == "disk":
                 # save model
+                if verbose:
+                    print(f"Saving model to {filepath}")
                 torch.save(model.state_dict(), filepath)
             else:
                 # warn and do nothing
