@@ -86,6 +86,7 @@ test_loader = DataLoader(
 # %%
 
 # Train models
+print("Training models")
 for learning_rate in models.LEARNING_RATES:
     # Create model and load state dict if it exists
     model = models.MViTV2Regression(  # pylint: disable=invalid-name
