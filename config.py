@@ -10,19 +10,19 @@ import torch
 
 # %%
 # ANNOTATION_FILE = "/srv/andre/30_09_2020.csv"
-ANNOTATION_FILE_REGRESSION = "project-6-at-2023-08-01-16-01-a81a144c.json"
-ANNOTATION_FILE_CLASSIFICATION = "project-6-at-2023-08-01-16-01-a81a144c.json"
+ANNOTATION_FILE_REGRESSION = "data/project-6-at-2023-08-01-16-01-a81a144c.json"
+ANNOTATION_FILE_CLASSIFICATION = "data/project-6-at-2023-08-01-16-01-a81a144c.json"
 LABEL_COLUMN = "Taxa / 60s"
-# TRAIN_ANNOTATION_FILE = "./train_annotation.csv"
-# TRAIN_ANNOTATION_FILE = "project-6-at-2023-07-17-15-08-b48ff462.json"
-# TEST_ANNOTATION_FILE = "./test_annotation.csv"
-# TEST_ANNOTATION_FILE = "project-6-at-2023-07-17-15-08-b48ff462.json"
+# TRAIN_ANNOTATION_FILE = "data/train_annotation.csv"
+# TRAIN_ANNOTATION_FILE = "data/project-6-at-2023-07-17-15-08-b48ff462.json"
+# TEST_ANNOTATION_FILE = "data/test_annotation.csv"
+# TEST_ANNOTATION_FILE = "data/project-6-at-2023-07-17-15-08-b48ff462.json"
 TRAIN_PERCENTAGE: float = 0.8
 VAL_PERCENTAGE: float = 0.2
 
 ANNOTATION_SECONDS = 30
 
-DATA_DIRECTORY = "./videos/"
+DATA_DIRECTORY = "data/videos/"
 # DATA_DIRECTORY = "./videos/label-studio/"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
