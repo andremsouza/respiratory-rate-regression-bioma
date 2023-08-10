@@ -108,7 +108,7 @@ for learning_rate in models.LEARNING_RATES:
     except FileNotFoundError:
         # Touch file so it exists
         # This crudely enables training multiple models in parallel
-        # However, if there is an interruption during training, the file will not be deleted
+        # However, if there's an interruption during training, the file won't be deleted
         # In this case, the file will need to be deleted manually
         with open(
             f"{config.MODELS_DIRECTORY}{model.__class__.__name__}_{learning_rate}_best.pt",
