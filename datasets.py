@@ -7,9 +7,11 @@
 import os
 from typing import Callable
 
+import cv2
 import dotenv
 import numpy as np
 import pandas as pd
+import torch
 from torch.utils.data import Dataset
 import torchvision
 
@@ -45,11 +47,13 @@ class VideoDataset(Dataset):
         data_dir: str | None = None,
         container_id: str | None = None,
         container_data_dir: str | None = None,
-        fps: float = 7.5,
+        fps: float = 5,
         sample_size: int = 16,
-        filter_ids: list[int] | None = None,
+        hop_length: int = 8,
+        filter_task_ids: list[int] | None = None,
         bbox_transform: bool = False,
-        trim_video: bool = False,
+        download_videos: bool = False,
+        download_videos_overwrite: bool = False,
         classification: bool = False,
         transform: Callable | None = None,
         target_transform: Callable | None = None,
@@ -70,23 +74,23 @@ class VideoDataset(Dataset):
         self.project_id: int = project_id
         # If data_dir is None, use current working directory
         # If data_dir does not exist, create it
-        self.data_dir: str = os.path.join(
-            data_dir if data_dir is not None else os.getcwd(), "data/"
+        self.data_dir: str = (
+            data_dir if data_dir is not None else os.path.join(os.getcwd(), "data/")
         )
-        if not os.path.exists(self.data_dir):
-            os.makedirs(self.data_dir)
         self.fps: float = fps
         self.sample_size: int = sample_size
-        self.filter_ids: list[int] | None = filter_ids
+        self.hop_length: int = hop_length
+        self.filter_ids: list[int] | None = filter_task_ids
         self.bbox_transform: bool = bbox_transform
-        self.trim_video: bool = trim_video
+        self.download_videos: bool = download_videos
+        self.download_videos_overwrite: bool = download_videos_overwrite
         self.classification: bool = classification
         self.transform: Callable | None = transform
         self.target_transform: Callable | None = target_transform
         # Load tasks
-        self._load_tasks()
-        # Process tasks into samples
-        self._process_tasks()
+        self._load_annotations()
+        # Process annotations
+        self._process_annotations()
         # TODO: Implement for classification
         # TODO: Implement for regression
         # TODO: Implement bbox transform
@@ -110,34 +114,48 @@ class VideoDataset(Dataset):
                 )
             )
 
-    def _load_tasks(self) -> None:
+    def _load_annotations(self) -> None:
         """Load tasks from LabelStudio."""
         # Get tasks and annotations from LabelStudio
-        self.tasks: pd.DataFrame = self.api.list_project_tasks(
+        self.annotations: pd.DataFrame = self.api.list_project_tasks(
             project_id=self.project_id,
             page_size=-1,
             only_labeled=True,
             to_dataframe=True,
         )[0]
         # Filter tasks with valid (non-empty) annotations
-        self.tasks = self.tasks[self.tasks["annotation_value.result"].notna()]
+        self.annotations = self.annotations[
+            self.annotations["annotation_value.result"].notna()
+        ]
         # Filter ids if specified
         if self.filter_ids is not None:
-            self.tasks = self.tasks[self.tasks["id"].isin(self.filter_ids)]
+            self.annotations = self.annotations[
+                self.annotations["id"].isin(self.filter_ids)
+            ]
         # Transform annotations data column
-        self.tasks["data"] = self.tasks.apply(lambda x: str(x["data"]["video"]), axis=1)
+        self.annotations["data"] = self.annotations.apply(
+            lambda x: str(x["data"]["video"]), axis=1
+        )
         # Get task annotations
         # Create columns with object type
-        self.tasks["breathing_rate"] = np.nan
-        self.tasks["bbox_sequence"] = np.nan
-        self.tasks["segments"] = np.nan
+        self.annotations["breathing_rate"] = np.nan
+        self.annotations["bbox_sequence"] = np.nan
+        self.annotations["segments"] = np.nan
         # Convert new columns to object type
-        self.tasks["breathing_rate"] = self.tasks["breathing_rate"].astype("object")
-        self.tasks["bbox_sequence"] = self.tasks["bbox_sequence"].astype("object")
-        self.tasks["segments"] = self.tasks["segments"].astype("object")
-        for idx, row in self.tasks.iterrows():
+        self.annotations["breathing_rate"] = self.annotations["breathing_rate"].astype(
+            "object"
+        )
+        self.annotations["bbox_sequence"] = self.annotations["bbox_sequence"].astype(
+            "object"
+        )
+        self.annotations["segments"] = self.annotations["segments"].astype("object")
+        for idx, row in self.annotations.iterrows():
             row_result = pd.json_normalize(row["annotation_value.result"])
-            # Get breathing rate from result, if available
+            # Get original_length from result
+            try:
+                original_length: float | None = row_result["original_length"].max()
+            except KeyError:
+                original_length = None
             breathing_rate: float = 0.0
             if len(row_result[row_result["from_name"] == "breathingrate"]) > 0:
                 breathing_rate = row_result[
@@ -161,18 +179,431 @@ class VideoDataset(Dataset):
                         "labels": segment["value.labels"],
                     }
                 )
+            # Set original length in dataframe
+            self.annotations.at[idx, "original_length"] = original_length
             # Set breathing rate, bbox sequence and segments in dataframe
-            self.tasks.at[idx, "breathing_rate"] = breathing_rate
-            self.tasks.at[idx, "bbox_sequence"] = (
+            self.annotations.at[idx, "breathing_rate"] = breathing_rate
+            self.annotations.at[idx, "bbox_sequence"] = (
                 bbox_sequence if bbox_sequence else None
             )
-            self.tasks.at[idx, "segments"] = segments if segments else None
+            self.annotations.at[idx, "segments"] = segments if segments else None
         # Drop original result column
-        self.tasks.drop(columns=["annotation_value.result"], inplace=True)
+        self.annotations.drop(columns=["annotation_value.result"], inplace=True)
+        # Sort by task id and annotation id
+        self.annotations = self.annotations.sort_values(
+            by=["id", "annotation_value.id"]
+        )
 
-    def _process_tasks(self) -> None:
+    def _process_annotations(self) -> None:
         # TODO: Implement processing
+        # Download videos
+        if self.download_videos:
+            # Create data directory if it does not exist
+            os.makedirs(self.data_dir, exist_ok=True)
+            self.annotations.apply(
+                self._download_task_video,
+                axis=1,
+                overwrite=self.download_videos_overwrite,
+            )
+        # Convert annotations to segments
+        segment_lists = self.annotations.apply(
+            self._annotation_to_segments,
+            axis=1,
+        )
+        # Merge segment lists into single list
+        segments = []
+        for segment_list in segment_lists:
+            segments += segment_list
+        # Convert segments to dataframe
+        self.segments = pd.DataFrame(segments)
+        # Convert segments to samples
+        sample_lists = self.segments.apply(
+            self._segment_to_samples,
+            axis=1,
+        )
+        # Merge sample lists into single list
+        samples = []
+        for sample_list in sample_lists:
+            samples += sample_list
+        # Convert samples to dataframe
+        self.samples = pd.DataFrame(samples)
+        # raise NotImplementedError
+
+    def _annotation_to_segments(self, annotation: pd.Series) -> list[dict]:
+        """Convert annotation to segments.
+
+        Args:
+            annotation_id (int): Annotation ID.
+
+        Returns:
+            list[dict]: List of segments.
+        """
+        segment_samples: list[dict] = []  # Store segments in list of dicts
+        # Get segments
+        if annotation["segments"] is not None:
+            segments = sorted(annotation["segments"], key=lambda x: x["start"])
+        else:
+            segments = []
+        # For each segment, generate sample
+        if len(segments) > 0:
+            complement_ranges = []  # Calculate complement ranges
+            for seg_idx, segment in enumerate(segments):
+                if seg_idx == 0:
+                    complement_ranges.append(
+                        {"start": 0.0, "end": segment["start"], "labels": ["NOT OK"]}
+                    )
+                else:
+                    complement_ranges.append(
+                        {
+                            "start": segments[seg_idx - 1]["end"],
+                            "end": segment["start"],
+                            "labels": ["NOT OK"],
+                        }
+                    )
+            # Add last complement range
+            complement_ranges.append(
+                {
+                    "start": segments[-1]["end"],
+                    "end": annotation["original_length"],
+                    "labels": ["NOT OK"],
+                }
+            )
+            segments += complement_ranges  # Add complement ranges to segments
+            # Remove segments with same start and end time
+            segments = [
+                segment for segment in segments if segment["start"] != segment["end"]
+            ]
+            # Sort segments by start time ascending
+            segments = sorted(segments, key=lambda x: x["start"])
+            # Generate samples
+            for seg_idx, segment in enumerate(segments):
+                # Only add segment if start and end times are different
+                segment_samples.append(annotation.drop("segments").to_dict())
+                segment_samples[-1].update(
+                    {
+                        "segment_start": segment["start"],
+                        "segment_end": segment["end"],
+                        "segment_id": seg_idx,
+                        "segment_labels": segment["labels"],
+                    }
+                )
+        else:
+            # Use full video
+            segment_samples.append(annotation.drop("segments").to_dict())
+            segment_samples[-1].update(
+                {
+                    "segment_start": 0.0,
+                    "segment_end": annotation["original_length"],
+                    "segment_id": 0,
+                    "segment_labels": ["OK"],
+                }
+            )
+        return segment_samples
+
+    def _segment_to_samples(self, segment: pd.Series) -> list[dict]:
+        """Convert segment to samples.
+
+        Args:
+            segment (pd.Series): Segment.
+
+        Returns:
+            list[dict]: List of samples.
+        """
+        samples: list[dict] = []
+        # Get segment start and end times
+        segment_start_time: float = segment["segment_start"]
+        segment_end_time: float = segment["segment_end"]
+
+        # Read video timestamps
+        filename: str = os.path.join(self.data_dir, segment["data"].split("/")[-1])
+        cap = cv2.VideoCapture(filename)
+        video_fps: float = cap.get(cv2.CAP_PROP_FPS)
+        frame_count: int = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        resample_rate: float = self.fps / video_fps
+        # Check if segment start and end times are valid
+        if np.isnan(segment_start_time) or np.isnan(segment_end_time):
+            segment_start_time = 0.0
+            segment_end_time = frame_count / video_fps
+        # Calculate segment start and end frames
+        segment_start_frame: int = int(segment_start_time * video_fps)
+        segment_end_frame: int = int(segment_end_time * video_fps)
+        # Calculate segment start and end frames after resampling
+        segment_start_frame_resampled: int = int(segment_start_frame * resample_rate)
+        segment_end_frame_resampled: int = int(segment_end_frame * resample_rate)
+        # Calculate start and end frames for each sample
+        sample_start_frames = np.arange(
+            segment_start_frame_resampled,
+            segment_end_frame_resampled - self.sample_size,
+            self.hop_length,
+        )
+        sample_end_frames = sample_start_frames + self.sample_size
+        # Get sample start and end times
+        sample_start_times = sample_start_frames / self.fps
+        sample_end_times = sample_end_frames / self.fps
+        # Generate samples
+        for sample_idx, (
+            sample_start_frame,
+            sample_end_frame,
+            sample_start_time,
+            sample_end_time,
+        ) in enumerate(
+            zip(
+                sample_start_frames,
+                sample_end_frames,
+                sample_start_times,
+                sample_end_times,
+            )
+        ):
+            samples.append(
+                {
+                    "task_id": segment["id"],
+                    "annotation_id": segment["annotation_value.id"],
+                    "segment_id": segment["segment_id"],
+                    "sample_id": sample_idx,
+                    "data": filename,
+                    "fps_target": self.fps,
+                    "sample_start_frame": sample_start_frame,
+                    "sample_end_frame": sample_end_frame,
+                    "sample_start_time": sample_start_time,
+                    "sample_end_time": sample_end_time,
+                    "breathing_rate": segment["breathing_rate"],
+                    "bbox_sequence": segment[
+                        "bbox_sequence"
+                    ],  # TODO: Check after bbox_sequence is fixed
+                    "segment_labels": segment["segment_labels"],
+                }
+            )
+        return samples
+
+    def _download_task_video(
+        self, annotation: pd.Series, overwrite: bool = False
+    ) -> None:
+        """Download task video."""
+        # Get task
+        filename = annotation["data"].split("/")[-1]
+        # Check if video is already downloaded
+        if os.path.exists(os.path.join(self.data_dir, filename)) and not overwrite:
+            return
+        # Download video
+        self.api.download_task_video(task_id=annotation["id"])
+
+    def _interpolate_bboxes(
+        self,
+        bboxes: list[dict],
+        num_frames: int,
+        interpolation: str = "linear",
+        fps: float | None = None,
+    ) -> list[dict]:
+        """Interpolate bounding boxes.
+
+        Given a list of bounding boxes, interpolate between them. For example, if we have
+        bounding boxes at 0.0s and 1.0s, we will interpolate the bounding boxes for each
+        frame in between.
+
+        Given a list of bounding boxes, transform the video to the bounding box.
+        Each bounding box is a dictionary with the following keys:
+            - "x": The x coordinate of the top left corner of the bounding box.
+            - "y": The y coordinate of the top left corner of the bounding box.
+            - "width": The width of the bounding box.
+            - "height": The height of the bounding box.
+            - "time": The time of the bounding box in seconds.
+            - "frame": The frame of the bounding box in the video.
+            - "rotation": The rotation of the bounding box in degrees.
+
+        Args:
+            bboxes (list[dict]): The list of bounding boxes.
+            num_frames (int): The number of frames in the video.
+            interpolation (int, optional): The interpolation method to use. Defaults to
+                "linear".
+            fps (float, optional): The frames per second of the video. Defaults to None.
+
+        Returns:
+            list[dict]: The interpolated bounding boxes.
+        """
+        # if no bounding boxes, return empty list
+        if len(bboxes) == 0:
+            return []
+        # if only one bounding box, return the same bounding box for each frame
+        if len(bboxes) == 1:
+            return [bboxes[0]] * num_frames
+        # if interpolation is linear, interpolate linearly
+        if interpolation == "linear":
+            # ensure bounding boxes are sorted by time
+            bboxes = sorted(bboxes, key=lambda x: x["time"])
+            # for each bbox pair, interpolate between them
+            # thus generating a bbox for each frame
+            interpolated_bboxes: list[dict] = []
+            for i in range(len(bboxes) - 1):
+                start_bbox: dict = bboxes[i]
+                end_bbox: dict = bboxes[i + 1]
+                # get the start and end times
+                start_time: float = start_bbox["time"]
+                end_time: float = end_bbox["time"]
+                # get the start and end frames
+                if fps is not None:
+                    # if fps is provided, use it to calculate the start and end frames
+                    start_frame = int(start_time * fps) + 1
+                    end_frame = int(end_time * fps) + 1
+                else:
+                    # otherwise, use the start and end frames provided
+                    start_frame = start_bbox["frame"]
+                    end_frame = end_bbox["frame"]
+                # get the start and end x coordinates
+                start_x: float = start_bbox["x"]
+                end_x: float = end_bbox["x"]
+                # get the start and end y coordinates
+                start_y: float = start_bbox["y"]
+                end_y: float = end_bbox["y"]
+                # get the start and end width
+                start_width: float = start_bbox["width"]
+                end_width: float = end_bbox["width"]
+                # get the start and end height
+                start_height: float = start_bbox["height"]
+                end_height: float = end_bbox["height"]
+                # get the start and end rotation
+                start_rotation: float = start_bbox["rotation"]
+                end_rotation: float = end_bbox["rotation"]
+
+                # interpolate between the start and end bounding boxes
+                # with numpy
+                # get the times for each frame
+                times: np.ndarray = np.linspace(
+                    start=start_time, stop=end_time, num=end_frame - start_frame
+                )
+                # get the x coordinates for each frame
+                xs: np.ndarray = np.linspace(
+                    start=start_x, stop=end_x, num=end_frame - start_frame
+                )
+                # get the y coordinates for each frame
+                ys: np.ndarray = np.linspace(
+                    start=start_y, stop=end_y, num=end_frame - start_frame
+                )
+                # get the widths for each frame
+                widths: np.ndarray = np.linspace(
+                    start=start_width, stop=end_width, num=end_frame - start_frame
+                )
+                # get the heights for each frame
+                heights: np.ndarray = np.linspace(
+                    start=start_height, stop=end_height, num=end_frame - start_frame
+                )
+                # get the rotations for each frame
+                rotations: np.ndarray = np.linspace(
+                    start=start_rotation, stop=end_rotation, num=end_frame - start_frame
+                )
+
+                # append the interpolated bounding boxes
+                interpolated_bboxes += [
+                    {
+                        "x": x,
+                        "y": y,
+                        "time": time,
+                        "frame": frame,
+                        "width": width,
+                        "height": height,
+                        "rotation": rotation,
+                    }
+                    for x, y, width, height, time, frame, rotation in zip(
+                        xs,
+                        ys,
+                        widths,
+                        heights,
+                        times,
+                        range(start_frame, end_frame),
+                        rotations,
+                    )
+                ]
+            # append the last bounding box to remaining frames, adjusting the frame number
+            last_bbox_frame: int = interpolated_bboxes[-1]["frame"]
+            while len(interpolated_bboxes) < num_frames:
+                interpolated_bboxes.append(
+                    {
+                        "x": bboxes[-1]["x"],
+                        "y": bboxes[-1]["y"],
+                        "time": bboxes[-1]["time"],  # TODO: calculate time
+                        "frame": last_bbox_frame + 1,
+                        "width": bboxes[-1]["width"],
+                        "height": bboxes[-1]["height"],
+                        "rotation": bboxes[-1]["rotation"],
+                    }
+                )
+                last_bbox_frame += 1
+            # Raise exception if the number of interpolated bounding boxes is not equal to
+            # the number of frames
+            assert len(interpolated_bboxes) == num_frames
+            # Raise exception if the interpolated bounding boxes are not sorted by frame
+            assert all(
+                interpolated_bboxes[i]["frame"] <= interpolated_bboxes[i + 1]["frame"]
+                for i in range(len(interpolated_bboxes) - 1)
+            )
+            # return the interpolated bounding boxes
+            return interpolated_bboxes
         raise NotImplementedError
+
+    def frame_to_bbox(
+        self,
+        frame: torch.Tensor,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        rotation: float,
+        interpolation: str = "bilinear",
+        percent: bool = False,
+    ) -> torch.Tensor:
+        """Transform a frame to a bounding box.
+
+        Args:
+            frame (torch.Tensor): The frame to transform.
+            x (float): The x coordinate of the bounding box.
+            y (float): The y coordinate of the bounding box.
+            width (float): The width of the bounding box.
+            height (float): The height of the bounding box.
+            rotation (float): The rotation of the bounding box in degrees.
+            interpolation (str, optional): The interpolation method to use. Defaults to
+                "bilinear".
+            percent (bool, optional): Whether the x, y, width, and height are in percent.
+
+        Returns:
+            torch.Tensor: The transformed frame.
+        """
+        # get original frame size
+        original_height, original_width = frame.shape[-2:]
+        # convert percent to pixels
+        if percent:
+            x *= original_width / 100
+            y *= original_height / 100
+            width *= original_width / 100
+            height *= original_height / 100
+        # rotate
+        frame = torchvision.transforms.functional.rotate(
+            frame,
+            angle=rotation,
+            interpolation={
+                "bilinear": torchvision.transforms.functional.InterpolationMode.BILINEAR,
+                "nearest": torchvision.transforms.functional.InterpolationMode.NEAREST,
+            }[interpolation],
+        )
+        # crop
+        frame = torchvision.transforms.functional.crop(
+            frame,
+            top=int(y),
+            left=int(x),
+            height=int(height),
+            width=int(width),
+        )
+        # resize
+        frame = torchvision.transforms.functional.resize(
+            frame,
+            size=(original_height, original_width),
+            interpolation={
+                "bilinear": torchvision.transforms.functional.InterpolationMode.BILINEAR,
+                "nearest": torchvision.transforms.functional.InterpolationMode.NEAREST,
+            }[interpolation],
+            antialias=True,
+        )
+        # return the transformed frame
+        return frame
 
 
 # %% [markdown]
