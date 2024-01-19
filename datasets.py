@@ -5,7 +5,7 @@
 
 # %%
 import os
-from typing import Callable
+from typing import Any, Callable
 
 import cv2
 import dotenv
@@ -14,6 +14,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 import torchvision
+from torchvision.io import read_video
 
 from label_studio.api import LabelStudioAPI
 
@@ -39,6 +40,35 @@ LABEL_STUDIO_PROJECT_ID: int = int(os.getenv("LABEL_STUDIO_PROJECT_ID", "1"))
 
 
 class VideoDataset(Dataset):
+    """Video dataset.
+
+    Args:
+        url (str): Label Studio URL.
+        api_key (str): Label Studio API key.
+        project_id (int): Project ID.
+        data_dir (str, optional): Data directory. Defaults to None.
+        container_id (str, optional): Container ID. Defaults to None.
+        container_data_dir (str, optional): Container data directory. Defaults to None.
+        fps (float, optional): Frames per second. Defaults to 5.
+        sample_size (int, optional): Sample size. Defaults to 16.
+        hop_length (int, optional): Hop length. Defaults to 8.
+        filter_task_ids (list[int], optional): Task IDs to filter. Defaults to None.
+        bbox_transform (bool, optional): Whether to transform the video to the bounding
+            box. Defaults to False.
+        download_videos (bool, optional): Whether to download videos. Defaults to False.
+        download_videos_overwrite (bool, optional): Whether to overwrite existing videos.
+            Defaults to False.
+        classification (bool, optional): Whether to use classification. Defaults to
+            False.
+        transform (Callable, optional): Transform to apply to samples. Defaults to None.
+        target_transform (Callable, optional): Transform to apply to targets. Defaults
+            to None.
+        verbose (bool, optional): Whether to print verbose output. Defaults to False.
+
+    Raises:
+        ValueError: If project_id is invalid.
+    """
+
     def __init__(
         self,
         url: str,
@@ -55,10 +85,43 @@ class VideoDataset(Dataset):
         download_videos: bool = False,
         download_videos_overwrite: bool = False,
         classification: bool = False,
+        prune_invalid: bool = True,
         transform: Callable | None = None,
         target_transform: Callable | None = None,
         verbose: bool = False,
     ) -> None:
+        """Initialize dataset.
+
+        Args:
+            url (str): Label Studio URL.
+            api_key (str): Label Studio API key.
+            project_id (int): Project ID.
+            data_dir (str, optional): Data directory. Defaults to None.
+            container_id (str, optional): Container ID. Defaults to None.
+            container_data_dir (str, optional): Container data directory. Defaults to
+                None.
+            fps (float, optional): Frames per second. Defaults to 5.
+            sample_size (int, optional): Sample size. Defaults to 16.
+            hop_length (int, optional): Hop length. Defaults to 8.
+            filter_task_ids (list[int], optional): Task IDs to filter. Defaults to None.
+            bbox_transform (bool, optional): Whether to transform the video to the
+                bounding box. Defaults to False.
+            download_videos (bool, optional): Whether to download videos. Defaults to
+                False.
+            download_videos_overwrite (bool, optional): Whether to overwrite existing
+                videos. Defaults to False.
+            classification (bool, optional): Whether to use classification. Defaults to
+                False.
+            transform (Callable, optional): Transform to apply to samples. Defaults to
+                None.
+            target_transform (Callable, optional): Transform to apply to targets.
+                Defaults to None.
+            verbose (bool, optional): Whether to print verbose output. Defaults to
+                False.
+
+        Raises:
+            ValueError: If project_id is invalid.
+        """
         super().__init__()
         self.verbose = verbose
         # Initialize Label Studio API
@@ -85,15 +148,16 @@ class VideoDataset(Dataset):
         self.download_videos: bool = download_videos
         self.download_videos_overwrite: bool = download_videos_overwrite
         self.classification: bool = classification
+        self.prune_invalid: bool = prune_invalid
         self.transform: Callable | None = transform
         self.target_transform: Callable | None = target_transform
         # Load tasks
         self._load_annotations()
         # Process annotations
         self._process_annotations()
-        # TODO: Implement for classification
-        # TODO: Implement for regression
-        # TODO: Implement bbox transform
+        # Prune invalid samples
+        if self.prune_invalid:
+            self._prune_invalid()
 
     def _check_project_id(self, project_id: int, verbose: bool = False) -> None:
         """Check if project_id is valid.
@@ -186,6 +250,22 @@ class VideoDataset(Dataset):
             self.annotations.at[idx, "bbox_sequence"] = (
                 bbox_sequence if bbox_sequence else None
             )
+            # Interpolate bounding boxes
+            if self.bbox_transform and bbox_sequence:
+                # Get fps and number of frames with cv2
+                filename: str = os.path.join(
+                    self.data_dir, self.annotations.at[idx, "data"].split("/")[-1]
+                )
+                cap = cv2.VideoCapture(filename)
+                video_fps: float = cap.get(cv2.CAP_PROP_FPS)
+                frame_count: int = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                cap.release()
+                self.annotations.at[idx, "bbox_sequence"] = self._interpolate_bboxes(
+                    bboxes=bbox_sequence,
+                    num_frames=frame_count,
+                    interpolation="linear",
+                    fps=video_fps,
+                )
             self.annotations.at[idx, "segments"] = segments if segments else None
         # Drop original result column
         self.annotations.drop(columns=["annotation_value.result"], inplace=True)
@@ -295,7 +375,7 @@ class VideoDataset(Dataset):
                     "segment_start": 0.0,
                     "segment_end": annotation["original_length"],
                     "segment_id": 0,
-                    "segment_labels": ["OK"],
+                    "segment_labels": ["NOT OK"],
                 }
             )
         return segment_samples
@@ -321,6 +401,8 @@ class VideoDataset(Dataset):
         frame_count: int = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
         resample_rate: float = self.fps / video_fps
+        sample_size_original: int = int(self.sample_size / resample_rate)
+        hop_length_original: int = int(self.hop_length / resample_rate)
         # Check if segment start and end times are valid
         if np.isnan(segment_start_time) or np.isnan(segment_end_time):
             segment_start_time = 0.0
@@ -328,31 +410,49 @@ class VideoDataset(Dataset):
         # Calculate segment start and end frames
         segment_start_frame: int = int(segment_start_time * video_fps)
         segment_end_frame: int = int(segment_end_time * video_fps)
+        # Calculate original start and end frames for each sample
+        sample_start_frames = np.arange(
+            segment_start_frame,
+            segment_end_frame - sample_size_original,
+            hop_length_original,
+        )
+        sample_end_frames = sample_start_frames + sample_size_original
+        # Calculate original start and end times for each sample
+        sample_start_times = sample_start_frames / video_fps
+        sample_end_times = sample_end_frames / video_fps
         # Calculate segment start and end frames after resampling
         segment_start_frame_resampled: int = int(segment_start_frame * resample_rate)
         segment_end_frame_resampled: int = int(segment_end_frame * resample_rate)
-        # Calculate start and end frames for each sample
-        sample_start_frames = np.arange(
+        # Calculate resampled start and end frames for each sample
+        sample_start_frames_resampled = np.arange(
             segment_start_frame_resampled,
             segment_end_frame_resampled - self.sample_size,
             self.hop_length,
         )
-        sample_end_frames = sample_start_frames + self.sample_size
+        sample_end_frames_resampled = sample_start_frames_resampled + self.sample_size
         # Get sample start and end times
-        sample_start_times = sample_start_frames / self.fps
-        sample_end_times = sample_end_frames / self.fps
+        sample_start_times_resampled = sample_start_frames_resampled / self.fps
+        sample_end_times_resampled = sample_end_frames_resampled / self.fps
         # Generate samples
         for sample_idx, (
             sample_start_frame,
             sample_end_frame,
+            sample_start_frame_resampled,
+            sample_end_frame_resampled,
             sample_start_time,
             sample_end_time,
+            sample_start_time_resampled,
+            sample_end_time_resampled,
         ) in enumerate(
             zip(
                 sample_start_frames,
                 sample_end_frames,
+                sample_start_frames_resampled,
+                sample_end_frames_resampled,
                 sample_start_times,
                 sample_end_times,
+                sample_start_times_resampled,
+                sample_end_times_resampled,
             )
         ):
             samples.append(
@@ -363,18 +463,71 @@ class VideoDataset(Dataset):
                     "sample_id": sample_idx,
                     "data": filename,
                     "fps_target": self.fps,
+                    "fps_original": video_fps,
+                    "sample_size_target": self.sample_size,
+                    "sample_size_original": sample_size_original,
+                    "hop_length_target": self.hop_length,
+                    "hop_length_original": hop_length_original,
                     "sample_start_frame": sample_start_frame,
                     "sample_end_frame": sample_end_frame,
+                    "sample_start_frame_resampled": sample_start_frame_resampled,
+                    "sample_end_frame_resampled": sample_end_frame_resampled,
                     "sample_start_time": sample_start_time,
                     "sample_end_time": sample_end_time,
+                    "sample_start_time_resampled": sample_start_time_resampled,
+                    "sample_end_time_resampled": sample_end_time_resampled,
                     "breathing_rate": segment["breathing_rate"],
-                    "bbox_sequence": segment[
-                        "bbox_sequence"
-                    ],  # TODO: Check after bbox_sequence is fixed
+                    "bbox_sequence": segment["bbox_sequence"],
                     "segment_labels": segment["segment_labels"],
                 }
             )
         return samples
+
+    def _prune_invalid(self) -> None:
+        """Prune invalid samples."""
+        if self.bbox_transform:
+            # Remove samples with no bounding box sequence
+            self.samples = self.samples[
+                self.samples["bbox_sequence"].apply(lambda x: x is not None)
+            ]
+            # Remove samples with empty bounding box sequence
+            self.samples = self.samples[
+                self.samples["bbox_sequence"].apply(lambda x: len(x) > 0)
+            ]
+            # Remove samples with bounding box sequence outside range
+            self.samples = self.samples[
+                self.samples.apply(
+                    lambda x: len(
+                        x["bbox_sequence"][
+                            x["sample_start_frame"] : x["sample_end_frame"]
+                        ]
+                    )
+                    > 0,
+                    axis=1,
+                )
+            ]
+        if not self.classification:
+            # Remove samples with no breathing rate
+            self.samples = self.samples[
+                self.samples["breathing_rate"].apply(lambda x: x is not None)
+            ]
+            # Remove samples with NaN breathing rate
+            self.samples = self.samples[
+                self.samples["breathing_rate"].apply(lambda x: not np.isnan(x))
+            ]
+            # Remove samples with invalid breathing rate
+            self.samples = self.samples[
+                self.samples["breathing_rate"].apply(lambda x: x > 0.0)
+            ]
+        else:
+            # Remove samples with no labels
+            self.samples = self.samples[
+                self.samples["segment_labels"].apply(lambda x: x is not None)
+            ]
+            # Remove samples with empty labels
+            self.samples = self.samples[
+                self.samples["segment_labels"].apply(lambda x: len(x) > 0)
+            ]
 
     def _download_task_video(
         self, annotation: pd.Series, overwrite: bool = False
@@ -515,12 +668,13 @@ class VideoDataset(Dataset):
                 ]
             # append the last bounding box to remaining frames, adjusting the frame number
             last_bbox_frame: int = interpolated_bboxes[-1]["frame"]
+            last_bbox_count: int = 0
             while len(interpolated_bboxes) < num_frames:
                 interpolated_bboxes.append(
                     {
                         "x": bboxes[-1]["x"],
                         "y": bboxes[-1]["y"],
-                        "time": bboxes[-1]["time"],  # TODO: calculate time
+                        "time": bboxes[-1]["time"] + last_bbox_count / fps,  # type: ignore
                         "frame": last_bbox_frame + 1,
                         "width": bboxes[-1]["width"],
                         "height": bboxes[-1]["height"],
@@ -528,6 +682,9 @@ class VideoDataset(Dataset):
                     }
                 )
                 last_bbox_frame += 1
+                last_bbox_count += 1
+            if len(interpolated_bboxes) > num_frames:
+                interpolated_bboxes = interpolated_bboxes[:num_frames]
             # Raise exception if the number of interpolated bounding boxes is not equal to
             # the number of frames
             assert len(interpolated_bboxes) == num_frames
@@ -540,7 +697,7 @@ class VideoDataset(Dataset):
             return interpolated_bboxes
         raise NotImplementedError
 
-    def frame_to_bbox(
+    def _frame_to_bbox(
         self,
         frame: torch.Tensor,
         x: float,
@@ -604,6 +761,133 @@ class VideoDataset(Dataset):
         )
         # return the transformed frame
         return frame
+
+    def __len__(self) -> int:
+        """Get the number of samples.
+
+        Returns:
+            int: The number of samples.
+        """
+        return len(self.samples)
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, Any]:
+        """Get a sample.
+
+        Args:
+            idx (int): The sample index.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: The sample and target.
+        """
+        # Get sample
+        sample = self.samples.iloc[idx]
+        # Read video
+        video, _, info = read_video(
+            filename=sample["data"],
+            start_pts=sample["sample_start_time"],
+            end_pts=sample["sample_end_time"] + 1,
+            pts_unit="sec",
+            output_format="TCHW",
+        )
+        # If video length is larger than sample size, crop video
+        if video.shape[0] > sample["sample_size_original"]:
+            video = video[: sample["sample_size_original"], :, :, :]
+        # If video_length is smaller than sample size, pad video with last frames
+        if video.shape[0] < sample["sample_size_original"]:
+            video = torch.cat(
+                (
+                    video,
+                    video[-1, :, :, :].repeat(
+                        sample["sample_size_original"] - video.shape[0], 1, 1, 1
+                    ),
+                ),
+                dim=0,
+            )
+        assert video.shape[0] == sample["sample_size_original"]
+        # Transform video to bounding box
+        if self.bbox_transform:
+            # Get bounding boxes
+            bboxes = sample["bbox_sequence"]
+            # Get bbox sequence between start and end bbox indexes
+            bboxes = bboxes[sample["sample_start_frame"] : sample["sample_end_frame"]]
+            # If bboxes length is smaller than sample size, pad bboxes with last bbox
+            if len(bboxes) < sample["sample_size_original"]:
+                bboxes += [bboxes[-1]] * (sample["sample_size_original"] - len(bboxes))
+            assert len(bboxes) == video.shape[0]
+            # Transform video to bounding box
+            for frame_idx, bbox in enumerate(bboxes):
+                video[frame_idx, :, :, :] = self._frame_to_bbox(
+                    frame=video[frame_idx, :, :, :],
+                    x=bbox["x"],
+                    y=bbox["y"],
+                    width=bbox["width"],
+                    height=bbox["height"],
+                    rotation=bbox["rotation"],
+                    percent=True,
+                )
+
+        # Resample video
+        if self.fps < info["video_fps"]:
+            video = resample_video(
+                video=video,
+                fps=info["video_fps"],
+                target_fps=self.fps,
+            )
+        assert video.shape[0] == sample["sample_size_target"]
+        # Transform video
+        if self.transform is not None:
+            video = self.transform(video)
+        # Get target
+        if self.classification:
+            target = sample["segment_labels"]
+        else:
+            target = sample["breathing_rate"]
+        # Transform target
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+        return video, target
+
+
+# %% [markdown]
+# # Functions
+
+# %%
+
+
+def resample_video(
+    video: torch.Tensor,
+    fps: float,
+    target_fps: float,
+) -> torch.Tensor:
+    """Resample a video to a target fps.
+
+    Args:
+        video: A tensor of shape (T, C, H, W).
+        fps: The fps of the video.
+        target_fps: The target fps.
+        device: The device to send the batches to.
+
+    Returns:
+        A tensor of shape (T', C, H, W).
+    """
+    # calculate the number of frames in the video
+    number_of_frames = video.shape[0]
+    # calculate the duration of the video
+    duration = number_of_frames / fps
+    # calculate the number of frames in the resampled video
+    number_of_frames_resampled = int(duration * target_fps)
+    # manually resample the video
+    # create a list of frames to sample
+    frames_to_sample = torch.linspace(
+        0, number_of_frames - 1, number_of_frames_resampled
+    )
+    # round the frames to sample
+    frames_to_sample = torch.round(frames_to_sample).long()
+    # sample the frames
+    video_resampled = video[frames_to_sample, :, :, :]
+    # send the tensor to the device
+    # video_resampled = video_resampled.to(device)
+    return video_resampled
 
 
 # %% [markdown]
