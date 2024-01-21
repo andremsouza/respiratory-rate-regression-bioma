@@ -4,17 +4,25 @@
 # # Imports
 
 # %%
+from typing import Any
+
 import lightning.pytorch as pl
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torchmetrics.classification import BinaryAccuracy
 from torchmetrics.regression import (
     MeanAbsoluteError,
     MeanAbsolutePercentageError,
     MeanSquaredError,
 )
 import torchvision
-from torchvision.models.video import mvit_v2_s, MViT_V2_S_Weights
+from torchvision.models.video import (
+    mvit_v2_s,
+    MViT_V2_S_Weights,
+    r2plus1d_18,
+    R2Plus1D_18_Weights,
+)
 
 import config
 import data
@@ -218,6 +226,210 @@ class MViTV2BinaryClassification(nn.Module):
             torch.Tensor: Output tensor. Shape: (batch_size, 1)
         """
         return self.model(x)
+
+
+class R2Plus1D18Classification(pl.LightningModule):
+    """Adapter for R2Plus1D18 model for binary classification."""
+
+    def __init__(
+        self,
+        *args,
+        num_classes: int = 400,
+        optimizer: str = "adamw",
+        learning_rate: float = 0.001,
+        weight_decay: float = 0.01,
+        early_stopping_patience: int = 16,
+        loss_function: nn.Module = nn.CrossEntropyLoss(),
+        activation_function: nn.Module = nn.Sigmoid(),
+        weights: R2Plus1D_18_Weights | None = R2Plus1D_18_Weights.DEFAULT,
+        **kwargs,
+    ):
+        """Initialize the model.
+
+        Args:
+            num_classes (int, optional): Number of classes. Defaults to 400.
+            optimizer (str, optional): Optimizer. Defaults to "adamw".
+            learning_rate (float, optional): Learning rate. Defaults to 0.001.
+            weight_decay (float, optional): Weight decay. Defaults to 0.01.
+            early_stopping_patience (int, optional): Early stopping patience.
+                Defaults to 16.
+            loss_function (nn.Module, optional): Loss function.
+                Defaults to nn.CrossEntropyLoss().
+            activation_function (nn.Module, optional): Activation function.
+                Defaults to nn.Sigmoid().
+            weights (R2Plus1D_18_Weights | None, optional): Weights for the model.
+                Defaults to R2Plus1D_18_Weights.DEFAULT.
+        """
+        super().__init__(*args, **kwargs)
+        self.num_classes = num_classes
+        self.optimizer = optimizer
+        self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
+        self.early_stopping_patience = early_stopping_patience
+        self.loss_function = loss_function
+        self.activation_function = activation_function
+        # Initialize model
+        self.model = r2plus1d_18(weights=weights)
+        # Update heads
+        self._update_heads()
+        # Initialize training metrics
+        self.train_accuracy = BinaryAccuracy()
+        # Initialize validation metrics
+        self.val_accuracy = BinaryAccuracy()
+        # Initialize test metrics
+        self.test_accuracy = BinaryAccuracy()
+
+    def _update_heads(self) -> None:
+        """Update the heads of the model."""
+        self.model.fc = nn.Linear(
+            in_features=self.model.fc.in_features,
+            out_features=self.num_classes,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+                Shape: (batch_size, num_frames, num_channels, height, width)
+
+        Returns:
+            torch.Tensor: Output tensor. Shape: (batch_size, 1)
+        """
+        return self.model(x)
+
+    def training_step(self, batch: torch.Tensor, batch_idx: int) -> torch.Tensor:
+        """Perform training step.
+
+        Args:
+            batch (torch.Tensor): Batch of data.
+            batch_idx (int): Index of batch.
+
+        Returns:
+            torch.Tensor: Loss.
+        """
+        inputs, targets = batch
+        outputs = self(inputs)
+        # Calculate loss
+        loss = self.loss_function(outputs, targets)
+        # Log loss
+        self.log("train_loss", loss, on_step=False, on_epoch=True)
+        # Calculate metrics
+        self.train_accuracy(self.activation_function(outputs), targets.int())
+        # Log metrics
+        self.log("train_accuracy", self.train_accuracy, on_step=False, on_epoch=True)
+        # Return loss
+        return loss
+
+    def validation_step(
+        self, batch: torch.Tensor, batch_idx: int, dataloader_idx: int = 0
+    ) -> torch.Tensor:
+        """Perform validation step.
+
+        Args:
+            batch (torch.Tensor): Batch of data.
+            batch_idx (int): Index of batch.
+            dataloader_idx (int, optional): Index of dataloader. Defaults to 0.
+
+        Returns:
+            torch.Tensor: Loss.
+        """
+        inputs, targets = batch
+        outputs = self(inputs)
+        # Calculate loss
+        loss = self.loss_function(outputs, targets)
+        # Log loss
+        self.log("val_loss", loss, on_step=False, on_epoch=True)
+        # Calculate metrics
+        self.val_accuracy(self.activation_function(outputs), targets.int())
+        # Log metrics
+        self.log("val_accuracy", self.val_accuracy, on_step=False, on_epoch=True)
+        # Return loss
+        return loss
+
+    def test_step(
+        self, batch: torch.Tensor, batch_idx: int, dataloader_idx: int = 0
+    ) -> torch.Tensor:
+        """Perform test step.
+
+        Args:
+            batch (torch.Tensor): Batch of data.
+            batch_idx (int): Index of batch.
+            dataloader_idx (int, optional): Index of dataloader. Defaults to 0.
+
+        Returns:
+            torch.Tensor: Loss.
+        """
+        inputs, targets = batch
+        outputs = self(inputs)
+        # Calculate loss
+        loss = self.loss_function(outputs, targets)
+        # Log loss
+        self.log("test_loss", loss, on_step=False, on_epoch=True)
+        # Calculate metrics
+        self.test_accuracy(self.activation_function(outputs), targets.int())
+        # Log metrics
+        # Return loss
+        return loss
+
+    def predict_step(
+        self, batch: torch.Tensor, batch_idx: int, dataloader_idx: int = 0
+    ) -> Any:
+        """Perform prediction step.
+
+        Args:
+            batch (torch.Tensor): Batch of data.
+            batch_idx (int): Index of batch.
+            dataloader_idx (int, optional): Index of dataloader. Defaults to 0.
+
+        Returns:
+            Any: Predictions.
+        """
+        inputs, targets = batch
+        outputs = self(inputs)
+        return outputs
+
+    def configure_optimizers(self) -> Any:
+        """Configure optimizers.
+
+        Returns:
+            Any: Optimizers.
+        """
+        if self.optimizer == "adamw":
+            optimizer = torch.optim.AdamW(
+                self.parameters(),
+                lr=self.learning_rate,
+                weight_decay=self.weight_decay,
+            )
+        elif self.optimizer == "adam":
+            optimizer = torch.optim.Adam(  # type: ignore
+                self.parameters(),
+                lr=self.learning_rate,
+                weight_decay=self.weight_decay,
+            )
+        elif self.optimizer == "sgd":
+            optimizer = torch.optim.SGD(  # type: ignore
+                self.parameters(),
+                lr=self.learning_rate,
+                weight_decay=self.weight_decay,
+            )
+        else:
+            raise ValueError(f"Optimizer {self.optimizer} not supported.")
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=0.1,
+            patience=self.early_stopping_patience // 2,
+            threshold=0.0001,
+            threshold_mode="rel",
+            cooldown=0,
+            min_lr=0,
+            eps=1e-08,
+            verbose=True,
+        )
+        return [optimizer], [
+            {"scheduler": scheduler, "interval": "epoch", "monitor": "val_loss"}
+        ]
 
 
 # %%
