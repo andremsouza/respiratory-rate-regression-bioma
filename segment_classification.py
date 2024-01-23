@@ -257,7 +257,7 @@ WEIGHT_DECAY: float = args.weight_decay
 MAX_EPOCHS: int = args.max_epochs
 PATIENCE: int = args.patience
 SEED: int = args.seed
-MODEL_NAME: str = args.model_name
+MODEL_NAME: str = args.model_name + "_classification"
 PRETRAINED: bool = args.pretrained
 # Set random seed
 random.seed(SEED)
