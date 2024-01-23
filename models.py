@@ -239,7 +239,7 @@ class R2Plus1D18Classification(pl.LightningModule):
         learning_rate: float = 0.001,
         weight_decay: float = 0.01,
         early_stopping_patience: int = 16,
-        loss_function: nn.Module = nn.CrossEntropyLoss(),
+        loss_function: nn.Module = nn.BCEWithLogitsLoss(),
         activation_function: nn.Module = nn.Sigmoid(),
         weights: R2Plus1D_18_Weights | None = R2Plus1D_18_Weights.DEFAULT,
         **kwargs,
