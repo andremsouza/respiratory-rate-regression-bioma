@@ -192,7 +192,7 @@ parser.add_argument(
 parser.add_argument(
     "--patience",
     type=int,
-    default=os.getenv("PATIENCE", 16),
+    default=os.getenv("PATIENCE", 32),
     help="Patience for early stopping",
 )
 # Add seed
@@ -283,8 +283,8 @@ if __name__ == "__main__":
     # Get transforms from weights
     transform = R2Plus1D_18_Weights.DEFAULT.transforms()
     target_dict = {
-        "NOT OK": 0,
-        "OK": 1,
+        "NOT OK": 0.0,
+        "OK": 1.0,
     }
     # Load dataset
     dataset = VideoDataset(
@@ -304,7 +304,7 @@ if __name__ == "__main__":
         classification=True,
         prune_invalid=True,
         transform=transform,
-        target_transform=lambda x: torch.tensor(target_dict[x]),
+        target_transform=lambda x: torch.tensor(target_dict[x[0]]).unsqueeze(0),
         verbose=VERBOSE,
     )
     # Get task ids
@@ -332,7 +332,7 @@ if __name__ == "__main__":
         classification=True,
         prune_invalid=True,
         transform=transform,
-        target_transform=lambda x: torch.tensor(target_dict[x]),
+        target_transform=lambda x: torch.tensor(target_dict[x[0]]).unsqueeze(0),
         verbose=VERBOSE,
     )
     test_dataset = VideoDataset(
@@ -352,7 +352,7 @@ if __name__ == "__main__":
         classification=True,
         prune_invalid=True,
         transform=transform,
-        target_transform=lambda x: torch.tensor(target_dict[x]),
+        target_transform=lambda x: torch.tensor(target_dict[x[0]]).unsqueeze(0),
         verbose=VERBOSE,
     )
     print(f"[{datetime.now()}]: Loaded datasets")
@@ -377,7 +377,7 @@ if __name__ == "__main__":
     train_dataloaders: list[DataLoader] = [train_dataloader]
     test_dataloaders: list[DataLoader] = [test_dataloader]
     for train_dataloader, test_dataloader in zip(train_dataloaders, test_dataloaders):
-        experiment_name: str = f"{MODEL_NAME}" f"{f'_pretrained' if PRETRAINED else ''}"
+        experiment_name: str = f"{MODEL_NAME}_pretrained{PRETRAINED}_batch{BATCH_SIZE}"
         model: R2Plus1D18Classification = R2Plus1D18Classification(
             num_classes=1,
             optimizer=OPTIMIZER,
@@ -396,7 +396,7 @@ if __name__ == "__main__":
         ]
         checkpoint_callback: ModelCheckpoint = ModelCheckpoint(
             dirpath=MODEL_DIR,
-            filename=experiment_name + "-{val_auroc:.2f}-{val_loss:.2f}-{epoch:02d}",
+            filename=experiment_name + "-{val_accuracy:.2f}-{epoch:02d}",
             monitor="val_accuracy",
             verbose=True,
             save_top_k=1,
