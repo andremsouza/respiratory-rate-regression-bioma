@@ -523,7 +523,8 @@ class R2Plus1D18Regression(pl.LightningModule):
             torch.Tensor: Loss.
         """
         inputs, targets = batch
-        outputs = self(inputs)
+        targets = targets.float()
+        outputs = self(inputs).float()
         # Calculate loss
         loss = self.loss_function(outputs, targets)
         # Log loss
