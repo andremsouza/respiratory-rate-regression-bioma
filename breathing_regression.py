@@ -151,7 +151,7 @@ parser.add_argument(
 parser.add_argument(
     "--num-workers",
     type=int,
-    default=os.getenv("NUM_WORKERS", os.cpu_count() if os.cpu_count() else 32),
+    default=os.getenv("NUM_WORKERS", os.cpu_count() // 2 if os.cpu_count() else 1),
     help="Number of workers for dataloaders",
 )
 # Add batch size
