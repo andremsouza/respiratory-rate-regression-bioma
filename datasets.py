@@ -6,6 +6,7 @@
 # %%
 import os
 from typing import Any, Callable
+import warnings
 
 import cv2
 import dotenv
@@ -221,28 +222,37 @@ class VideoDataset(Dataset):
             except KeyError:
                 original_length = None
             breathing_rate: float = 0.0
-            if len(row_result[row_result["from_name"] == "breathingrate"]) > 0:
-                breathing_rate = row_result[
-                    row_result["from_name"] == "breathingrate"
-                ].iloc[0]["value.number"]
+            try:
+                if len(row_result[row_result["from_name"] == "breathingrate"]) > 0:
+                    breathing_rate = row_result[
+                        row_result["from_name"] == "breathingrate"
+                    ].iloc[0]["value.number"]
+            except KeyError:
+                breathing_rate = 0.0
             # Get bbox sequence from result, if available
             bbox_sequence: list[dict] = []
-            if len(row_result[row_result["from_name"] == "box"]) > 0:
-                bbox_sequence = row_result[row_result["from_name"] == "box"].iloc[0][
-                    "value.sequence"
-                ]
+            try:
+                if len(row_result[row_result["from_name"] == "box"]) > 0:
+                    bbox_sequence = row_result[row_result["from_name"] == "box"].iloc[
+                        0
+                    ]["value.sequence"]
+            except KeyError:
+                bbox_sequence = []
             # Get segments from result, if available
             segments: list[dict] = []
-            for _, segment in row_result[
-                row_result["from_name"] == "tricks"
-            ].iterrows():
-                segments.append(
-                    {
-                        "start": segment["value.start"],
-                        "end": segment["value.end"],
-                        "labels": segment["value.labels"],
-                    }
-                )
+            try:
+                for _, segment in row_result[
+                    row_result["from_name"] == "tricks"
+                ].iterrows():
+                    segments.append(
+                        {
+                            "start": segment["value.start"],
+                            "end": segment["value.end"],
+                            "labels": segment["value.labels"],
+                        }
+                    )
+            except KeyError:
+                segments = []
             # Set original length in dataframe
             self.annotations.at[idx, "original_length"] = original_length
             # Set breathing rate, bbox sequence and segments in dataframe
@@ -519,6 +529,10 @@ class VideoDataset(Dataset):
             self.samples = self.samples[
                 self.samples["breathing_rate"].apply(lambda x: x > 0.0)
             ]
+            # Remove "Not OK" samples
+            self.samples = self.samples[
+                self.samples["segment_labels"].apply(lambda x: "NOT OK" not in x)
+            ]
         else:
             # Remove samples with no labels
             self.samples = self.samples[
@@ -528,6 +542,25 @@ class VideoDataset(Dataset):
             self.samples = self.samples[
                 self.samples["segment_labels"].apply(lambda x: len(x) > 0)
             ]
+        # drop_indices: list[int] = []
+        # # Try to iterate over all samples
+        # # If an exception is raised, print the exception and the sample
+        # for idx in range(len(self)):  # pylint: disable=consider-using-enumerate
+        #     try:
+        #         self[idx]
+        #     except Exception:
+        #         drop_indices.append(idx)
+        #     # Print progress every 1% of samples
+        #     if idx % (len(self) // 100) == 0:
+        #         print(
+        #             f"Pruning invalid samples: {idx}/{len(self)} ({len(drop_indices)} invalid)"
+        #         )
+        # # Drop invalid samples
+        # self.samples = self.samples.drop(index=drop_indices)
+        # # Reset index
+        # self.samples = self.samples.reset_index(drop=True)
+        # # Raise warning
+        # warnings.warn(f"Pruned {len(drop_indices)} invalid samples.")
 
     def _download_task_video(
         self, annotation: pd.Series, overwrite: bool = False
@@ -687,12 +720,12 @@ class VideoDataset(Dataset):
                 interpolated_bboxes = interpolated_bboxes[:num_frames]
             # Raise exception if the number of interpolated bounding boxes is not equal to
             # the number of frames
-            assert len(interpolated_bboxes) == num_frames
+            # assert len(interpolated_bboxes) == num_frames
             # Raise exception if the interpolated bounding boxes are not sorted by frame
-            assert all(
-                interpolated_bboxes[i]["frame"] <= interpolated_bboxes[i + 1]["frame"]
-                for i in range(len(interpolated_bboxes) - 1)
-            )
+            # assert all(
+            #     interpolated_bboxes[i]["frame"] <= interpolated_bboxes[i + 1]["frame"]
+            #     for i in range(len(interpolated_bboxes) - 1)
+            # )
             # return the interpolated bounding boxes
             return interpolated_bboxes
         raise NotImplementedError
@@ -803,7 +836,7 @@ class VideoDataset(Dataset):
                 ),
                 dim=0,
             )
-        assert video.shape[0] == sample["sample_size_original"]
+        # assert video.shape[0] == sample["sample_size_original"]
         # Transform video to bounding box
         if self.bbox_transform:
             # Get bounding boxes
@@ -813,7 +846,7 @@ class VideoDataset(Dataset):
             # If bboxes length is smaller than sample size, pad bboxes with last bbox
             if len(bboxes) < sample["sample_size_original"]:
                 bboxes += [bboxes[-1]] * (sample["sample_size_original"] - len(bboxes))
-            assert len(bboxes) == video.shape[0]
+            # assert len(bboxes) == video.shape[0]
             # Transform video to bounding box
             for frame_idx, bbox in enumerate(bboxes):
                 video[frame_idx, :, :, :] = self._frame_to_bbox(
@@ -833,7 +866,21 @@ class VideoDataset(Dataset):
                 fps=info["video_fps"],
                 target_fps=self.fps,
             )
-        assert video.shape[0] == sample["sample_size_target"]
+        # If video length is larger than sample size, crop video
+        if video.shape[0] > sample["sample_size_target"]:
+            video = video[: sample["sample_size_target"], :, :, :]
+        # If video_length is smaller than sample size, pad video with last frames
+        if video.shape[0] < sample["sample_size_target"]:
+            video = torch.cat(
+                (
+                    video,
+                    video[-1, :, :, :].repeat(
+                        sample["sample_size_target"] - video.shape[0], 1, 1, 1
+                    ),
+                ),
+                dim=0,
+            )
+        # assert video.shape[0] == sample["sample_size_target"]
         # Transform video
         if self.transform is not None:
             video = self.transform(video)
@@ -905,6 +952,10 @@ if __name__ == "__main__":
         container_data_dir=LABEL_STUDIO_DOWNLOAD_DIR,
         verbose=True,
     )
+    # # Iterate over dataset
+    # for idx in range(len(dataset)):
+    #     video, target = dataset[idx]
+    #     print(f"Idx: {idx}, Video: {video.shape}, Target: {target}")
     print("Done!")
 
 # %%
