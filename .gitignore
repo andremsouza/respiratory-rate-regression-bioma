@@ -145,3 +145,6 @@ models/
 
 # Logs
 logs*/
+
+# VSCode
+.vscode/
