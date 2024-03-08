@@ -193,7 +193,7 @@ parser.add_argument(
 parser.add_argument(
     "--patience",
     type=int,
-    default=os.getenv("PATIENCE", 32),
+    default=os.getenv("PATIENCE", 8),
     help="Patience for early stopping",
 )
 # Add seed
