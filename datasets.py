@@ -223,9 +223,9 @@ class VideoDataset(Dataset):
                 original_length = None
             breathing_rate: float = 0.0
             try:
-                if len(row_result[row_result["from_name"] == "breathingrate"]) > 0:
+                if len(row_result[row_result["from_name"] == "breathingrate30s"]) > 0:
                     breathing_rate = row_result[
-                        row_result["from_name"] == "breathingrate"
+                        row_result["from_name"] == "breathingrate30s"
                     ].iloc[0]["value.number"]
             except KeyError:
                 breathing_rate = 0.0
