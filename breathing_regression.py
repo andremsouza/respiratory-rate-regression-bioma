@@ -6,6 +6,7 @@
 # %%
 import argparse
 from datetime import datetime
+from functools import partial
 import os
 import random
 
@@ -20,6 +21,8 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision.models.video import R2Plus1D_18_Weights
+from torchvision.transforms.v2 import Compose, InterpolationMode, Normalize, Resize
+from torchvision.transforms._presets import VideoClassification
 
 import config
 from datasets import VideoDataset
@@ -282,7 +285,14 @@ if not os.path.exists(MODEL_DIR):
 # %%
 if __name__ == "__main__":
     # Get transforms from weights
-    transform = R2Plus1D_18_Weights.DEFAULT.transforms()
+    if BBOX_TRANSFORM:
+        # Use r2plus1d18 transforms, without center crop
+        transform = partial(
+            VideoClassification, crop_size=(112, 112), resize_size=(112, 112)
+        )()
+    else:
+        # Use r2plus1d18 default transforms
+        transform = R2Plus1D_18_Weights.DEFAULT.transforms()
     # Load dataset
     dataset = VideoDataset(
         url=LABEL_STUDIO_URL,
@@ -373,10 +383,13 @@ if __name__ == "__main__":
     # Set dataloaders (for generic use)
     train_dataloaders: list[DataLoader] = [train_dataloader]
     test_dataloaders: list[DataLoader] = [test_dataloader]
+
+# %%
+if __name__ == "__main__":
     for train_dataloader, test_dataloader in zip(train_dataloaders, test_dataloaders):
-        for loss_fn_name in ["l1loss", "mseloss"]:
+        for loss_fn_name in ["mseloss"]:
             experiment_name: str = (
-                f"{MODEL_NAME}_pretrained{PRETRAINED}_batch{BATCH_SIZE}_{loss_fn_name}"
+                f"{MODEL_NAME}_pretrained{PRETRAINED}_batch{BATCH_SIZE}_bbox{BBOX_TRANSFORM}_{loss_fn_name}"
             )
             loss_function: nn.Module = {
                 "l1loss": nn.L1Loss(),
