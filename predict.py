@@ -450,22 +450,58 @@ if __name__ == "__main__":
             train_samples["preds"] = flat_train_preds
             test_samples["preds"] = flat_test_preds
             # Filter export columns
-            train_samples = train_samples.loc[:, ['task_id', 'annotation_id', 'segment_id', 'sample_id', 'data',
-                'fps_target', 'fps_original', 'sample_size_target',
-                'sample_size_original', 'hop_length_target', 'hop_length_original',
-                'sample_start_frame', 'sample_end_frame',
-                'sample_start_frame_resampled', 'sample_end_frame_resampled',
-                'sample_start_time', 'sample_end_time', 'sample_start_time_resampled',
-                'sample_end_time_resampled', 'breathing_rate', "preds",]
-                ]
-            test_samples = test_samples.loc[:, ['task_id', 'annotation_id', 'segment_id', 'sample_id', 'data',
-                'fps_target', 'fps_original', 'sample_size_target',
-                'sample_size_original', 'hop_length_target', 'hop_length_original',
-                'sample_start_frame', 'sample_end_frame',
-                'sample_start_frame_resampled', 'sample_end_frame_resampled',
-                'sample_start_time', 'sample_end_time', 'sample_start_time_resampled',
-                'sample_end_time_resampled', 'breathing_rate', "preds",]
-                ]
+            train_samples = train_samples.loc[
+                :,
+                [
+                    "task_id",
+                    "annotation_id",
+                    "segment_id",
+                    "sample_id",
+                    "data",
+                    "fps_target",
+                    "fps_original",
+                    "sample_size_target",
+                    "sample_size_original",
+                    "hop_length_target",
+                    "hop_length_original",
+                    "sample_start_frame",
+                    "sample_end_frame",
+                    "sample_start_frame_resampled",
+                    "sample_end_frame_resampled",
+                    "sample_start_time",
+                    "sample_end_time",
+                    "sample_start_time_resampled",
+                    "sample_end_time_resampled",
+                    "breathing_rate",
+                    "preds",
+                ],
+            ]
+            test_samples = test_samples.loc[
+                :,
+                [
+                    "task_id",
+                    "annotation_id",
+                    "segment_id",
+                    "sample_id",
+                    "data",
+                    "fps_target",
+                    "fps_original",
+                    "sample_size_target",
+                    "sample_size_original",
+                    "hop_length_target",
+                    "hop_length_original",
+                    "sample_start_frame",
+                    "sample_end_frame",
+                    "sample_start_frame_resampled",
+                    "sample_end_frame_resampled",
+                    "sample_start_time",
+                    "sample_end_time",
+                    "sample_start_time_resampled",
+                    "sample_end_time_resampled",
+                    "breathing_rate",
+                    "preds",
+                ],
+            ]
             # Save to .csv
             train_samples.to_csv(f"train_preds_{experiment_name}.csv")
             test_samples.to_csv(f"test_preds_{experiment_name}.csv")
