@@ -22,6 +22,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision.models.video import R2Plus1D_18_Weights
 from torchvision.transforms.v2 import Compose, InterpolationMode, Normalize, Resize
+from torchvision.io import write_video
 from torchvision.transforms._presets import VideoClassification
 
 import config
@@ -114,6 +115,13 @@ parser.add_argument(
     type=bool,
     default=os.getenv("BBOX_TRANSFORM", False),
     help="Whether to transform bounding boxes",
+)
+# Add bbox_transform_corners bool
+parser.add_argument(
+    "--bbox-transform-corners",
+    type=bool,
+    default=os.getenv("BBOX_TRANSFORM_CORNERS", False),
+    help="Whether to transform bounding box corners",
 )
 # Add download_videos bool
 parser.add_argument(
@@ -248,6 +256,7 @@ FILTER_TASK_IDS: list | None = (
     else None
 )
 BBOX_TRANSFORM: bool = args.bbox_transform
+BBOX_TRANSFORM_CORNERS: bool = args.bbox_transform_corners
 DOWNLOAD_VIDEOS: bool = args.download_videos
 DOWNLOAD_VIDEOS_OVERWRITE: bool = args.download_videos_overwrite
 VERBOSE: bool = args.verbose
@@ -284,6 +293,8 @@ if not os.path.exists(MODEL_DIR):
 
 # %%
 if __name__ == "__main__":
+    BBOX_TRANSFORM = True
+    BBOX_TRANSFORM_CORNERS = True
     # Get transforms from weights
     if BBOX_TRANSFORM:
         # Use r2plus1d18 transforms, without center crop
@@ -306,6 +317,7 @@ if __name__ == "__main__":
         hop_length=HOP_LENGTH,
         filter_task_ids=FILTER_TASK_IDS,
         bbox_transform=BBOX_TRANSFORM,
+        bbox_transform_corners=BBOX_TRANSFORM_CORNERS,
         download_videos=DOWNLOAD_VIDEOS,
         download_videos_overwrite=DOWNLOAD_VIDEOS_OVERWRITE,
         classification=False,
@@ -334,6 +346,7 @@ if __name__ == "__main__":
         hop_length=HOP_LENGTH,
         filter_task_ids=train_task_ids,
         bbox_transform=BBOX_TRANSFORM,
+        bbox_transform_corners=BBOX_TRANSFORM_CORNERS,
         download_videos=DOWNLOAD_VIDEOS,
         download_videos_overwrite=DOWNLOAD_VIDEOS_OVERWRITE,
         classification=False,
@@ -354,6 +367,7 @@ if __name__ == "__main__":
         hop_length=HOP_LENGTH,
         filter_task_ids=test_task_ids,
         bbox_transform=BBOX_TRANSFORM,
+        bbox_transform_corners=BBOX_TRANSFORM_CORNERS,
         download_videos=DOWNLOAD_VIDEOS,
         download_videos_overwrite=DOWNLOAD_VIDEOS_OVERWRITE,
         classification=False,
@@ -385,7 +399,22 @@ if __name__ == "__main__":
     test_dataloaders: list[DataLoader] = [test_dataloader]
 
 # %%
-if __name__ == "__main__":
+# if __name__ == "__main__":
+#     # Get a sample from the dataset and save it
+#     train_dataset.transform = None
+#     sample, _ = train_dataset[0]
+#     print(f"[{datetime.now()}]: Got sample")
+#     # Save sample as video
+#     write_video(
+#         os.path.join("sample.mp4"),
+#         # sample.permute(1, 2, 3, 0),
+#         sample.permute(0, 2, 3, 1),
+#         fps=TARGET_FPS,
+#     )
+#     print(f"[{datetime.now()}]: Saved sample as video {os.path.join('sample.mp4')}")
+
+# %%
+if __name__ == "__main__" and 1 == 2:
     for train_dataloader, test_dataloader in zip(train_dataloaders, test_dataloaders):
         for loss_fn_name in ["mseloss"]:
             experiment_name: str = (

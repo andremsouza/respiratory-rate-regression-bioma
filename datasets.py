@@ -83,6 +83,7 @@ class VideoDataset(Dataset):
         hop_length: int = 8,
         filter_task_ids: list[int] | None = None,
         bbox_transform: bool = False,
+        bbox_transform_corners: bool = False,
         download_videos: bool = False,
         download_videos_overwrite: bool = False,
         classification: bool = False,
@@ -146,6 +147,7 @@ class VideoDataset(Dataset):
         self.hop_length: int = hop_length
         self.filter_ids: list[int] | None = filter_task_ids
         self.bbox_transform: bool = bbox_transform
+        self.bbox_transform_corners: bool = bbox_transform_corners
         self.download_videos: bool = download_videos
         self.download_videos_overwrite: bool = download_videos_overwrite
         self.classification: bool = classification
@@ -205,6 +207,7 @@ class VideoDataset(Dataset):
         # Create columns with object type
         self.annotations["breathing_rate"] = np.nan
         self.annotations["bbox_sequence"] = np.nan
+        self.annotations["lado"] = np.nan
         self.annotations["segments"] = np.nan
         # Convert new columns to object type
         self.annotations["breathing_rate"] = self.annotations["breathing_rate"].astype(
@@ -213,6 +216,7 @@ class VideoDataset(Dataset):
         self.annotations["bbox_sequence"] = self.annotations["bbox_sequence"].astype(
             "object"
         )
+        self.annotations["lado"] = self.annotations["lado"].astype("object")
         self.annotations["segments"] = self.annotations["segments"].astype("object")
         for idx, row in self.annotations.iterrows():
             row_result = pd.json_normalize(row["annotation_value.result"])
@@ -238,6 +242,15 @@ class VideoDataset(Dataset):
                     ]["value.sequence"]
             except KeyError:
                 bbox_sequence = []
+            # Get lado from result, if available
+            lado: str = ""
+            try:
+                if len(row_result[row_result["from_name"] == "lado"]) > 0:
+                    lado = row_result[row_result["from_name"] == "lado"].iloc[0][
+                        "value.choices"
+                    ][0]
+            except KeyError:
+                lado = ""
             # Get segments from result, if available
             segments: list[dict] = []
             try:
@@ -260,6 +273,7 @@ class VideoDataset(Dataset):
             self.annotations.at[idx, "bbox_sequence"] = (
                 bbox_sequence if bbox_sequence else None
             )
+            self.annotations.at[idx, "lado"] = lado
             # Interpolate bounding boxes
             if self.bbox_transform and bbox_sequence:
                 # Get fps and number of frames with cv2
@@ -488,6 +502,7 @@ class VideoDataset(Dataset):
                     "sample_end_time_resampled": sample_end_time_resampled,
                     "breathing_rate": segment["breathing_rate"],
                     "bbox_sequence": segment["bbox_sequence"],
+                    "lado": segment["lado"],
                     "segment_labels": segment["segment_labels"],
                 }
             )
@@ -516,6 +531,11 @@ class VideoDataset(Dataset):
                     axis=1,
                 )
             ]
+            if self.bbox_transform_corners:
+                # Remove samples without corner annotation
+                self.samples = self.samples[
+                    self.samples["lado"].apply(lambda x: x is not None)
+                ]
         if not self.classification:
             # Remove samples with no breathing rate
             self.samples = self.samples[
@@ -740,6 +760,9 @@ class VideoDataset(Dataset):
         rotation: float,
         interpolation: str = "bilinear",
         percent: bool = False,
+        corner: str | None = None,
+        corner_ratio_w: float = 0.5,
+        corner_ratio_h: float = 0.5,
     ) -> torch.Tensor:
         """Transform a frame to a bounding box.
 
@@ -753,7 +776,12 @@ class VideoDataset(Dataset):
             interpolation (str, optional): The interpolation method to use. Defaults to
                 "bilinear".
             percent (bool, optional): Whether the x, y, width, and height are in percent.
-
+            corner (str, optional): The corner of the bbox to use. Can be "top-left",
+                "top-right", "bottom-left", "bottom-right". Defaults to None.
+            corner_ratio_w (float, optional): The ratio of the width to use for the corner.
+                Defaults to 0.5.
+            corner_ratio_h (float, optional): The ratio of the height to use for the corner.
+                Defaults to 0.5.
         Returns:
             torch.Tensor: The transformed frame.
         """
@@ -775,13 +803,52 @@ class VideoDataset(Dataset):
             }[interpolation],
         )
         # crop
-        frame = torchvision.transforms.functional.crop(
-            frame,
-            top=int(y),
-            left=int(x),
-            height=int(height),
-            width=int(width),
-        )
+        if corner is None:
+            frame = torchvision.transforms.functional.crop(
+                frame,
+                top=int(y),
+                left=int(x),
+                height=int(height),
+                width=int(width),
+            )
+        else:
+            if corner == "top-left":
+                frame = torchvision.transforms.functional.crop(
+                    frame,
+                    top=int(y),
+                    left=int(x),
+                    height=int(height * corner_ratio_h),
+                    width=int(width * corner_ratio_w),
+                )
+            elif corner == "top-right":
+                frame = torchvision.transforms.functional.crop(
+                    frame,
+                    top=int(y),
+                    left=int(x + width * (1 - corner_ratio_w)),
+                    height=int(height * corner_ratio_h),
+                    width=int(width * corner_ratio_w),
+                )
+            elif corner == "bottom-left":
+                frame = torchvision.transforms.functional.crop(
+                    frame,
+                    top=int(y + height * (1 - corner_ratio_h)),
+                    left=int(x),
+                    height=int(height * corner_ratio_h),
+                    width=int(width * corner_ratio_w),
+                )
+            elif corner == "bottom-right":
+                frame = torchvision.transforms.functional.crop(
+                    frame,
+                    top=int(y + height * (1 - corner_ratio_h)),
+                    left=int(x + width * (1 - corner_ratio_w)),
+                    height=int(height * corner_ratio_h),
+                    width=int(width * corner_ratio_w),
+                )
+            else:
+                raise ValueError(
+                    f"Invalid valid for corner: {corner}."
+                    "Must be one of None, 'top-left', 'top-right', 'bottom-left', 'bottom-right'."
+                )
         # resize
         frame = torchvision.transforms.functional.resize(
             frame,
@@ -849,6 +916,14 @@ class VideoDataset(Dataset):
             # assert len(bboxes) == video.shape[0]
             # Transform video to bounding box
             for frame_idx, bbox in enumerate(bboxes):
+                corner = (
+                    {
+                        "Superior": "top-left",
+                        "Inferior": "bottom-left",
+                    }[sample["lado"]]
+                    if self.bbox_transform_corners
+                    else None
+                )
                 video[frame_idx, :, :, :] = self._frame_to_bbox(
                     frame=video[frame_idx, :, :, :],
                     x=bbox["x"],
@@ -857,6 +932,9 @@ class VideoDataset(Dataset):
                     height=bbox["height"],
                     rotation=bbox["rotation"],
                     percent=True,
+                    corner=corner,
+                    corner_ratio_w=(1 / 3),
+                    corner_ratio_h=0.5,
                 )
 
         # Resample video
