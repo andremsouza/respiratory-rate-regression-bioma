@@ -412,7 +412,7 @@ if __name__ == "__main__":
 #     print(f"[{datetime.now()}]: Saved sample as video {os.path.join('sample.mp4')}")
 
 # %%
-if __name__ == "__main__" and 1 == 2:
+if __name__ == "__main__":
     for train_dataloader, test_dataloader in zip(train_dataloaders, test_dataloaders):
         for loss_fn_name in ["mseloss"]:
             experiment_name: str = (
