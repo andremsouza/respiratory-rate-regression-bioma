@@ -416,7 +416,12 @@ if __name__ == "__main__" and 1 == 2:
     for train_dataloader, test_dataloader in zip(train_dataloaders, test_dataloaders):
         for loss_fn_name in ["mseloss"]:
             experiment_name: str = (
-                f"{MODEL_NAME}_pretrained{PRETRAINED}_batch{BATCH_SIZE}_bbox{BBOX_TRANSFORM}_{loss_fn_name}"
+                f"{MODEL_NAME}_"
+                f"pretrained{PRETRAINED}_"
+                f"batch{BATCH_SIZE}_"
+                f"bbox{BBOX_TRANSFORM}_"
+                f"corner{BBOX_TRANSFORM_CORNERS}_"
+                f"{loss_fn_name}_"
             )
             loss_function: nn.Module = {
                 "l1loss": nn.L1Loss(),
