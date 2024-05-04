@@ -293,8 +293,6 @@ if not os.path.exists(MODEL_DIR):
 
 # %%
 if __name__ == "__main__":
-    BBOX_TRANSFORM = True
-    BBOX_TRANSFORM_CORNERS = True
     # Get transforms from weights
     if BBOX_TRANSFORM:
         # Use r2plus1d18 transforms, without center crop
