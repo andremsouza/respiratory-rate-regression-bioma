@@ -397,6 +397,7 @@ if __name__ == "__main__":
     test_dataloaders: list[DataLoader] = [test_dataloader]
 
 # %%
+# ! FOR DEBUG ONLY
 # if __name__ == "__main__":
 #     # Get a sample from the dataset and save it
 #     train_dataset.transform = None
@@ -410,6 +411,28 @@ if __name__ == "__main__":
 #         fps=TARGET_FPS,
 #     )
 #     print(f"[{datetime.now()}]: Saved sample as video {os.path.join('sample.mp4')}")
+
+# %%
+# # ! FOR DEBUG ONLY
+# if __name__ == "__main__":
+#     # Iterate through train and test datasets with dataloaders
+#     for train_dataloader, test_dataloader in zip(train_dataloaders, test_dataloaders):
+#         print(f"[{datetime.now()}]: Got dataloaders")
+#         # Iterate through samples in dataloader
+#         print(f"[{datetime.now()}]: Iterating through train dataloader")
+#         for i, (x, y) in enumerate(train_dataloader):
+#             print(f"[{datetime.now()}]: Got batch {i}")
+#             # Print shapes
+#             print(f"x.shape: {x.shape}")
+#             print(f"y.shape: {y.shape}")
+#         print(f"[{datetime.now()}]: Finished iterating through train dataloader")
+#         print(f"[{datetime.now()}]: Iterating through test dataloader")
+#         for i, (x, y) in enumerate(test_dataloader):
+#             print(f"[{datetime.now()}]: Got batch {i}")
+#             # Print shapes
+#             print(f"x.shape: {x.shape}")
+#             print(f"y.shape: {y.shape}")
+
 
 # %%
 if __name__ == "__main__":
