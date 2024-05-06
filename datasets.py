@@ -916,14 +916,22 @@ class VideoDataset(Dataset):
             # assert len(bboxes) == video.shape[0]
             # Transform video to bounding box
             for frame_idx, bbox in enumerate(bboxes):
-                corner = (
-                    {
-                        "Superior": "top-left",
-                        "Inferior": "bottom-left",
-                    }[sample["lado"]]
-                    if self.bbox_transform_corners
-                    else None
-                )
+                try:
+                    corner = (
+                        {
+                            "Superior": "top-left",
+                            "Inferior": "bottom-left",
+                        }[sample["lado"]]
+                        if self.bbox_transform_corners
+                        else None
+                    )
+                except KeyError:
+                    # If the corner is not available, set it to None
+                    # Print a warning, with the sample index and id
+                    warnings.warn(
+                        f"Corner not available for sample {idx} with id {sample['task_id']}."
+                    )
+                    corner = None
                 video[frame_idx, :, :, :] = self._frame_to_bbox(
                     frame=video[frame_idx, :, :, :],
                     x=bbox["x"],
