@@ -364,7 +364,7 @@ dependencies:
   - openh264=2.3.1=hcb278e6_2
   - openjpeg=2.5.2=h488ebb8_0
   - openpyxl=3.1.2=py311h459d7ec_1
-  - openssl=3.2.1=hd590300_1
+  - openssl=3.3.0=hd590300_0
   - ordered-set=4.1.0=pyhd8ed1ab_0
   - orjson=3.9.15=py311h46250e7_0
   - overrides=7.7.0=pyhd8ed1ab_0
@@ -508,7 +508,7 @@ dependencies:
   - torchtriton=2.2.0=py311
   - torchvision=0.17.2=py311_cu121
   - tornado=6.4=py311h459d7ec_0
-  - tqdm=4.66.2=pyhd8ed1ab_0
+  - tqdm=4.66.4=pyhd8ed1ab_0
   - traitlets=5.14.2=pyhd8ed1ab_0
   - trove-classifiers=2024.4.10=pyhd8ed1ab_0
   - ttach=0.0.3=pyhd8ed1ab_0
