@@ -4,6 +4,7 @@
 # # Imports
 
 # %%
+import math
 import os
 from typing import Any, Callable
 import warnings
@@ -750,6 +751,39 @@ class VideoDataset(Dataset):
             return interpolated_bboxes
         raise NotImplementedError
 
+    def _rotate_point_around_origin(self, x, y, x0, y0, theta):
+        """Rotate a point around the origin.
+
+        Args:
+            x (float): The x coordinate of the point.
+            y (float): The y coordinate of the point.
+            x0 (float): The x coordinate of the origin.
+            y0 (float): The y coordinate of the origin.
+            theta (float): The rotation angle in degrees.
+
+        Returns:
+            tuple[float, float]: The rotated point.
+        """
+        # Convert theta from degrees to radians
+        theta_rad = math.radians(theta)
+        # Translate point to origin
+        x_translated = x - x0
+        y_translated = y - y0
+
+        # Perform the rotation
+        x_rotated = x_translated * math.cos(theta_rad) - y_translated * math.sin(
+            theta_rad
+        )
+        y_rotated = x_translated * math.sin(theta_rad) + y_translated * math.cos(
+            theta_rad
+        )
+
+        # Translate the point back
+        x2 = x_rotated + x0
+        y2 = y_rotated + y0
+
+        return x2, y2
+
     def _frame_to_bbox(
         self,
         frame: torch.Tensor,
@@ -801,6 +835,10 @@ class VideoDataset(Dataset):
                 "bilinear": torchvision.transforms.functional.InterpolationMode.BILINEAR,
                 "nearest": torchvision.transforms.functional.InterpolationMode.NEAREST,
             }[interpolation],
+        )
+        # Ajustar os valores de x e y após a rotação
+        x, y = self._rotate_point_around_origin(
+            x, y, original_width // 2, original_height // 2, -rotation
         )
         # crop
         if corner is None:
@@ -941,8 +979,8 @@ class VideoDataset(Dataset):
                     rotation=bbox["rotation"],
                     percent=True,
                     corner=corner,
-                    corner_ratio_w=(1 / 3),
-                    corner_ratio_h=0.5,
+                    corner_ratio_w=(1 / 2),
+                    corner_ratio_h=(2 / 3),
                 )
 
         # Resample video
