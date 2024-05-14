@@ -145,6 +145,7 @@ models/
 
 # Logs
 logs*/
+lightning_logs*/
 
 # VSCode
 .vscode/
