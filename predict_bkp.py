@@ -172,7 +172,7 @@ parser.add_argument(
 parser.add_argument(
     "--batch-size",
     type=int,
-    default=os.getenv("BATCH_SIZE", 4),
+    default=os.getenv("BATCH_SIZE", 16),
     help="Batch size for training",
 )
 # Add optimizer
@@ -221,7 +221,7 @@ parser.add_argument(
 parser.add_argument(
     "--model-name",
     type=str,
-    default=os.getenv("MODEL_NAME", "mvit_v2_s"),
+    default=os.getenv("MODEL_NAME", "r2plus1d18"),
     help="Name of model",
 )
 # Add pretrained bool
@@ -303,7 +303,7 @@ MODEL_PATH = os.path.join(
 )
 BBOX_TRANSFORM = False
 BBOX_TRANSFORM_CORNERS = False
-NUM_WORKERS = 3
+NUM_WORKERS = 2
 if __name__ == "__main__":
     # Get transforms from weights
     if BBOX_TRANSFORM:
@@ -316,7 +316,7 @@ if __name__ == "__main__":
         )()
     else:
         # Use r2plus1d18 default transforms
-        transform = MViT_V2_S_Weights.DEFAULT.transforms()
+        transform = R2Plus1D_18_Weights.DEFAULT.transforms()
     # Load dataset
     dataset = VideoDataset(
         url=LABEL_STUDIO_URL,
@@ -417,14 +417,14 @@ if __name__ == "__main__":
     for train_dataloader, test_dataloader in zip(train_dataloaders, test_dataloaders):
         for loss_fn_name in ["mseloss"]:
             experiment_name: str = (
-                f"{MODEL_NAME}_pretrained{PRETRAINED}_batch{BATCH_SIZE}_bbox{BBOX_TRANSFORM}_corner{BBOX_TRANSFORM_CORNERS}_{loss_fn_name}"
+                f"{MODEL_NAME}_pretrained{PRETRAINED}_batch{BATCH_SIZE}_bbox{BBOX_TRANSFORM}_corner{BBOX_TRANSFORM_CORNERS}_89{loss_fn_name}"
             )
             loss_function: nn.Module = {
                 "l1loss": nn.L1Loss(),
                 "mseloss": nn.MSELoss(),
             }[loss_fn_name]
             # Load from checkpoint
-            model = MViTV2Regression.load_from_checkpoint(
+            model = R2Plus1D18Regression.load_from_checkpoint(
                 checkpoint_path=MODEL_PATH,
                 num_classes=1,
                 optimizer=OPTIMIZER,

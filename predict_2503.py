@@ -299,7 +299,7 @@ if not os.path.exists(MODEL_DIR):
 # ! Change constants when needed
 MODEL_PATH = os.path.join(
     MODEL_DIR,
-    "mvit_v2_s_regression_pretrainedTrue_batch4_bboxFalse_cornerFalse_mseloss_-val_loss=55.39-epoch=02.ckpt",
+    "mvit_v2_s_regression_pretrainedTrue_batch4_bboxTrue_cornerTrue_mseloss_-val_loss=56.06-epoch=02.ckpt",
 )
 BBOX_TRANSFORM = False
 BBOX_TRANSFORM_CORNERS = False
@@ -417,7 +417,7 @@ if __name__ == "__main__":
     for train_dataloader, test_dataloader in zip(train_dataloaders, test_dataloaders):
         for loss_fn_name in ["mseloss"]:
             experiment_name: str = (
-                f"{MODEL_NAME}_pretrained{PRETRAINED}_batch{BATCH_SIZE}_bbox{BBOX_TRANSFORM}_corner{BBOX_TRANSFORM_CORNERS}_{loss_fn_name}"
+                f"{MODEL_NAME}_pretrained{PRETRAINED}_batch{BATCH_SIZE}_bbox{BBOX_TRANSFORM}_corner{BBOX_TRANSFORM_CORNERS}_89{loss_fn_name}"
             )
             loss_function: nn.Module = {
                 "l1loss": nn.L1Loss(),

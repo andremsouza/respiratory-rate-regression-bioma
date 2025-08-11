@@ -1,4 +1,7 @@
-"""This module is used to load a trained Torch model and get prediction, storing the results in a CSV file."""
+"""
+This module is used to load a trained Torch model and get prediction,
+storing the results in a CSV file.
+"""
 
 # %% [markdown]
 # ## Imports
@@ -31,6 +34,7 @@ import config
 from datasets import VideoDataset
 from models import R2Plus1D18Regression
 from models import MViTV2Regression
+from utils import str2bool
 
 # %% [markdown]
 # # Constants and arguments
@@ -116,7 +120,7 @@ parser.add_argument(
 parser.add_argument(
     "--bbox-transform",
     type=bool,
-    default=os.getenv("BBOX_TRANSFORM", False),
+    default=os.getenv("BBOX_TRANSFORM", True),
     help="Whether to transform bounding boxes",
 )
 # Add bbox_transform_corners bool
@@ -127,10 +131,11 @@ parser.add_argument(
     help="Whether to transform bounding box corners",
 )
 # Add download_videos bool
+
 parser.add_argument(
     "--download-videos",
-    type=bool,
-    default=os.getenv("DOWNLOAD_VIDEOS", True),
+    type=str2bool,
+    default=os.getenv("DOWNLOAD_VIDEOS", "True"),
     help="Whether to download videos",
 )
 # Add download_videos_overwrite bool
@@ -299,9 +304,9 @@ if not os.path.exists(MODEL_DIR):
 # ! Change constants when needed
 MODEL_PATH = os.path.join(
     MODEL_DIR,
-    "mvit_v2_s_regression_pretrainedTrue_batch4_bboxFalse_cornerFalse_mseloss_-val_loss=55.39-epoch=02.ckpt",
+    "mvit_v2_s_regression_pretrainedTrue_batch4_bboxTrue_cornerFalse_mseloss_-val_loss=56.07-epoch=02.ckpt",
 )
-BBOX_TRANSFORM = False
+BBOX_TRANSFORM = True
 BBOX_TRANSFORM_CORNERS = False
 NUM_WORKERS = 3
 if __name__ == "__main__":
@@ -407,7 +412,6 @@ if __name__ == "__main__":
     )
     print(f"[{datetime.now()}]: Created data loaders")
     # Create model
-    # Set dataloaders (for generic use)
     train_dataloaders: list[DataLoader] = [train_dataloader]
     test_dataloaders: list[DataLoader] = [test_dataloader]
 
@@ -417,8 +421,9 @@ if __name__ == "__main__":
     for train_dataloader, test_dataloader in zip(train_dataloaders, test_dataloaders):
         for loss_fn_name in ["mseloss"]:
             experiment_name: str = (
-                f"{MODEL_NAME}_pretrained{PRETRAINED}_batch{BATCH_SIZE}_bbox{BBOX_TRANSFORM}_corner{BBOX_TRANSFORM_CORNERS}_{loss_fn_name}"
+                f"{MODEL_NAME}_pretrained{PRETRAINED}_batch{BATCH_SIZE}_bbox{BBOX_TRANSFORM}_corner{BBOX_TRANSFORM_CORNERS}_89{loss_fn_name}"
             )
+            # '_89' is used as a version or experiment identifier; update as needed.
             loss_function: nn.Module = {
                 "l1loss": nn.L1Loss(),
                 "mseloss": nn.MSELoss(),

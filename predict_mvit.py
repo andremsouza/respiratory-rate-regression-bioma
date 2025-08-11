@@ -140,11 +140,22 @@ parser.add_argument(
     default=os.getenv("DOWNLOAD_VIDEOS_OVERWRITE", False),
     help="Whether to overwrite existing videos",
 )
+
+
+# Helper function to convert environment variable to bool
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return False
+    return v.lower() in ("yes", "true", "t", "1")
+
+
 # Add verbose bool
 parser.add_argument(
     "--verbose",
-    type=bool,
-    default=os.getenv("VERBOSE", True),
+    type=str2bool,
+    default=str2bool(os.getenv("VERBOSE", "True")),
     help="Whether to print verbose output",
 )
 # Add model dir
@@ -172,7 +183,7 @@ parser.add_argument(
 parser.add_argument(
     "--batch-size",
     type=int,
-    default=os.getenv("BATCH_SIZE", 4),
+    default=os.getenv("BATCH_SIZE", 16),
     help="Batch size for training",
 )
 # Add optimizer
@@ -303,7 +314,7 @@ MODEL_PATH = os.path.join(
 )
 BBOX_TRANSFORM = False
 BBOX_TRANSFORM_CORNERS = False
-NUM_WORKERS = 3
+NUM_WORKERS = 2
 if __name__ == "__main__":
     # Get transforms from weights
     if BBOX_TRANSFORM:
@@ -407,120 +418,118 @@ if __name__ == "__main__":
     )
     print(f"[{datetime.now()}]: Created data loaders")
     # Create model
-    # Set dataloaders (for generic use)
-    train_dataloaders: list[DataLoader] = [train_dataloader]
-    test_dataloaders: list[DataLoader] = [test_dataloader]
+    # Set dataloaders
+    # Use train_dataloader and test_dataloader directly
 
 # %%
 # Predict
 if __name__ == "__main__":
-    for train_dataloader, test_dataloader in zip(train_dataloaders, test_dataloaders):
-        for loss_fn_name in ["mseloss"]:
-            experiment_name: str = (
-                f"{MODEL_NAME}_pretrained{PRETRAINED}_batch{BATCH_SIZE}_bbox{BBOX_TRANSFORM}_corner{BBOX_TRANSFORM_CORNERS}_{loss_fn_name}"
-            )
-            loss_function: nn.Module = {
-                "l1loss": nn.L1Loss(),
-                "mseloss": nn.MSELoss(),
-            }[loss_fn_name]
-            # Load from checkpoint
-            model = MViTV2Regression.load_from_checkpoint(
-                checkpoint_path=MODEL_PATH,
-                num_classes=1,
-                optimizer=OPTIMIZER,
-                learning_rate=LEARNING_RATE,
-                weight_decay=WEIGHT_DECAY,
-                early_stopping_patience=PATIENCE,
-                loss_function=loss_function,
-            )
-            trainer: pl.Trainer = pl.Trainer()
-            # Predict for train and test sets
-            # If pkl file exists, load it instead of predicting
-            train_preds_path = f"train_preds_{experiment_name}.pkl"
-            test_preds_path = f"test_preds_{experiment_name}.pkl"
-            if os.path.exists(train_preds_path):
-                with open(train_preds_path, "rb") as f:
-                    train_preds = pickle.load(f)
-            else:
-                train_preds = trainer.predict(model, train_dataloader)
-                # Save train preds to .pkl
-                with open(train_preds_path, "wb") as f:
-                    pickle.dump(train_preds, f)
-            if os.path.exists(test_preds_path):
-                with open(test_preds_path, "rb") as f:
-                    test_preds = pickle.load(f)
-            else:
-                test_preds = trainer.predict(model, test_dataloader)
-                # Save test preds to .pkl
-                with open(test_preds_path, "wb") as f:
-                    pickle.dump(test_preds, f)
-            # Preds is a list of tensors
-            # Flatten the list of tensors
-            flat_train_preds = torch.cat(train_preds).squeeze().numpy()
-            flat_test_preds = torch.cat(test_preds).squeeze().numpy()
-            # Get samples from datasets
-            train_samples = train_dataloader.dataset.samples
-            test_samples = test_dataloader.dataset.samples
-            # Append flat_preds to samples
-            train_samples["preds"] = flat_train_preds
-            test_samples["preds"] = flat_test_preds
-            # Filter export columns
-            train_samples = train_samples.loc[
-                :,
-                [
-                    "task_id",
-                    "annotation_id",
-                    "segment_id",
-                    "sample_id",
-                    "data",
-                    "fps_target",
-                    "fps_original",
-                    "sample_size_target",
-                    "sample_size_original",
-                    "hop_length_target",
-                    "hop_length_original",
-                    "sample_start_frame",
-                    "sample_end_frame",
-                    "sample_start_frame_resampled",
-                    "sample_end_frame_resampled",
-                    "sample_start_time",
-                    "sample_end_time",
-                    "sample_start_time_resampled",
-                    "sample_end_time_resampled",
-                    "breathing_rate",
-                    "preds",
-                ],
-            ]
-            test_samples = test_samples.loc[
-                :,
-                [
-                    "task_id",
-                    "annotation_id",
-                    "segment_id",
-                    "sample_id",
-                    "data",
-                    "fps_target",
-                    "fps_original",
-                    "sample_size_target",
-                    "sample_size_original",
-                    "hop_length_target",
-                    "hop_length_original",
-                    "sample_start_frame",
-                    "sample_end_frame",
-                    "sample_start_frame_resampled",
-                    "sample_end_frame_resampled",
-                    "sample_start_time",
-                    "sample_end_time",
-                    "sample_start_time_resampled",
-                    "sample_end_time_resampled",
-                    "breathing_rate",
-                    "preds",
-                ],
-            ]
-            # Save to .csv
-            train_samples.to_csv(f"train_preds_{experiment_name}.csv")
-            test_samples.to_csv(f"test_preds_{experiment_name}.csv")
-            print(f"[{datetime.now()}]: Finished prediction {experiment_name}")
+    for loss_fn_name in ["mseloss"]:
+        experiment_name: str = (
+            f"{MODEL_NAME}_pretrained{PRETRAINED}_batch{BATCH_SIZE}_bbox{BBOX_TRANSFORM}_corner{BBOX_TRANSFORM_CORNERS}_89{loss_fn_name}"
+        )
+        loss_function: nn.Module = {
+            "l1loss": nn.L1Loss(),
+            "mseloss": nn.MSELoss(),
+        }[loss_fn_name]
+        # Load from checkpoint
+        model = MViTV2Regression.load_from_checkpoint(
+            checkpoint_path=MODEL_PATH,
+            num_classes=1,
+            optimizer=OPTIMIZER,
+            learning_rate=LEARNING_RATE,
+            weight_decay=WEIGHT_DECAY,
+            early_stopping_patience=PATIENCE,
+            loss_function=loss_function,
+        )
+        trainer: pl.Trainer = pl.Trainer()
+        # Predict for train and test sets
+        # If pkl file exists, load it instead of predicting
+        train_preds_path = f"train_preds_{experiment_name}.pkl"
+        test_preds_path = f"test_preds_{experiment_name}.pkl"
+        if os.path.exists(train_preds_path):
+            with open(train_preds_path, "rb") as f:
+                train_preds = pickle.load(f)
+        else:
+            train_preds = trainer.predict(model, train_dataloader)
+            # Save train preds to .pkl
+            with open(train_preds_path, "wb") as f:
+                pickle.dump(train_preds, f)
+        if os.path.exists(test_preds_path):
+            with open(test_preds_path, "rb") as f:
+                test_preds = pickle.load(f)
+        else:
+            test_preds = trainer.predict(model, test_dataloader)
+            # Save test preds to .pkl
+            with open(test_preds_path, "wb") as f:
+                pickle.dump(test_preds, f)
+        # Preds is a list of tensors
+        # Flatten the list of tensors
+        flat_train_preds = torch.cat(train_preds).squeeze().numpy()
+        flat_test_preds = torch.cat(test_preds).squeeze().numpy()
+        # Get samples from datasets
+        train_samples = train_dataloader.dataset.samples
+        test_samples = test_dataloader.dataset.samples
+        # Append flat_preds to samples
+        train_samples["preds"] = flat_train_preds
+        test_samples["preds"] = flat_test_preds
+        # Filter export columns
+        train_samples = train_samples.loc[
+            :,
+            [
+                "task_id",
+                "annotation_id",
+                "segment_id",
+                "sample_id",
+                "data",
+                "fps_target",
+                "fps_original",
+                "sample_size_target",
+                "sample_size_original",
+                "hop_length_target",
+                "hop_length_original",
+                "sample_start_frame",
+                "sample_end_frame",
+                "sample_start_frame_resampled",
+                "sample_end_frame_resampled",
+                "sample_start_time",
+                "sample_end_time",
+                "sample_start_time_resampled",
+                "sample_end_time_resampled",
+                "breathing_rate",
+                "preds",
+            ],
+        ]
+        test_samples = test_samples.loc[
+            :,
+            [
+                "task_id",
+                "annotation_id",
+                "segment_id",
+                "sample_id",
+                "data",
+                "fps_target",
+                "fps_original",
+                "sample_size_target",
+                "sample_size_original",
+                "hop_length_target",
+                "hop_length_original",
+                "sample_start_frame",
+                "sample_end_frame",
+                "sample_start_frame_resampled",
+                "sample_end_frame_resampled",
+                "sample_start_time",
+                "sample_end_time",
+                "sample_start_time_resampled",
+                "sample_end_time_resampled",
+                "breathing_rate",
+                "preds",
+            ],
+        ]
+        # Save to .csv
+        train_samples.to_csv(f"train_preds_{experiment_name}.csv")
+        test_samples.to_csv(f"test_preds_{experiment_name}.csv")
+        print(f"[{datetime.now()}]: Finished prediction {experiment_name}")
 
 # %%
 

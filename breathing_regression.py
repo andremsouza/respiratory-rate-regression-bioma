@@ -20,7 +20,10 @@ from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+
 from torchvision.models.video import R2Plus1D_18_Weights
+from torchvision.models.video import MViT_V2_S_Weights
+
 from torchvision.transforms.v2 import Compose, InterpolationMode, Normalize, Resize
 from torchvision.io import write_video
 from torchvision.transforms._presets import VideoClassification
@@ -28,6 +31,7 @@ from torchvision.transforms._presets import VideoClassification
 import config
 from datasets import VideoDataset
 from models import R2Plus1D18Regression
+from models import MViTV2Regression
 
 # %% [markdown]
 # # Constants and arguments
@@ -218,7 +222,7 @@ parser.add_argument(
 parser.add_argument(
     "--model-name",
     type=str,
-    default=os.getenv("MODEL_NAME", "r2plus1d18"),
+    default=os.getenv("MODEL_NAME", "mvit_v2_s"),
     help="Name of model",
 )
 # Add pretrained bool
@@ -262,7 +266,7 @@ DOWNLOAD_VIDEOS_OVERWRITE: bool = args.download_videos_overwrite
 VERBOSE: bool = args.verbose
 MODEL_DIR: str = args.model_dir
 LOG_DIR: str = args.log_dir
-NUM_WORKERS: int = args.num_workers
+NUM_WORKERS: int = 2
 BATCH_SIZE: int = args.batch_size
 OPTIMIZER: str = args.optimizer
 LEARNING_RATE: float = args.learning_rate
@@ -297,11 +301,15 @@ if __name__ == "__main__":
     if BBOX_TRANSFORM:
         # Use r2plus1d18 transforms, without center crop
         transform = partial(
-            VideoClassification, crop_size=(112, 112), resize_size=(112, 112)
+            VideoClassification,
+            crop_size=(224, 224),
+            resize_size=(256,),
+            mean=(0.45, 0.45, 0.45),
+            std=(0.225, 0.225, 0.225),
         )()
     else:
         # Use r2plus1d18 default transforms
-        transform = R2Plus1D_18_Weights.DEFAULT.transforms()
+        transform = MViT_V2_S_Weights.DEFAULT.transforms()
     # Load dataset
     dataset = VideoDataset(
         url=LABEL_STUDIO_URL,
@@ -450,15 +458,17 @@ if __name__ == "__main__":
                 "l1loss": nn.L1Loss(),
                 "mseloss": nn.MSELoss(),
             }[loss_fn_name]
-            model: R2Plus1D18Regression = R2Plus1D18Regression(
+            # model: R2Plus1D18Regression = R2Plus1D18Regression(
+            model: MViTV2Regression = MViTV2Regression(
                 num_classes=1,
                 optimizer=OPTIMIZER,
                 learning_rate=LEARNING_RATE,
                 weight_decay=WEIGHT_DECAY,
                 early_stopping_patience=PATIENCE,
                 loss_function=loss_function,
-                weights=R2Plus1D_18_Weights.DEFAULT if PRETRAINED else None,
+                weights=MViT_V2_S_Weights.DEFAULT if PRETRAINED else None,
             )
+
             # Train model
             early_stopping: EarlyStopping = EarlyStopping(
                 monitor="val_loss", patience=PATIENCE, mode="min"
